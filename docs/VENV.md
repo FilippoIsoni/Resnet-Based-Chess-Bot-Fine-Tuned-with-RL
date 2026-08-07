@@ -139,6 +139,55 @@ prematuramente. Si aggiungeranno se e quando il profiler lo confermerà.
 
 ---
 
+## macOS — da verificare (Stadio 0-bis)
+
+Il progetto è stato impostato su Windows. La verifica di compatibilità su Mac è il
+prossimo passo assegnato al collaboratore che lavora su quella macchina; questa sezione
+è il punto di partenza, non una procedura già collaudata.
+
+```bash
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+
+# NIENTE --index-url: su macOS non esistono wheel CUDA, pip prende la build giusta
+pip install torch
+pip install -r requirements-dev.txt
+pip install -e .
+
+pre-commit install
+python scripts/check.py --stage setup
+```
+
+### Cosa cambia rispetto a Windows
+
+| Aspetto | Windows | macOS |
+|---|---|---|
+| Backend | CUDA (cu126) | MPS su Apple Silicon, CPU su Intel |
+| Indice pip per torch | `--index-url .../cu126` | nessuno |
+| Attivazione venv | `.\.venv\Scripts\Activate.ps1` | `source .venv/bin/activate` |
+| Memoria | 6 GB VRAM dedicata | unificata con la RAM di sistema |
+| Monitoraggio GPU | `nvidia-smi` | assente (`powermetrics` come parziale sostituto) |
+| Stato batteria | `Win32_Battery` via WMI | `pmset -g batt` |
+| Stockfish | binario `.exe` | binario arm64 o x86_64 |
+
+`check.py` e `preflight.py` gestiscono già queste differenze: i criteri CUDA-specifici
+diventano SKIP con motivazione su macOS invece di FAIL. **Questo va confermato girando
+davvero i due script su Mac** — è scritto, non ancora verificato su quella piattaforma.
+
+### Cosa NON cambia
+
+I criteri di correttezza. L'encoder deve produrre gli stessi tensori bit a bit su
+entrambe le macchine, e i file golden in `tests/golden/` devono passare identici. Se
+divergono c'è una dipendenza dalla piattaforma dentro il codice — vedi la nota sulla
+verifica incrociata nello Stadio 0-bis di PIPELINE.md.
+
+### Divisione del lavoro suggerita
+
+MPS regge la Fase 3 ma è più lento di CUDA e alcune operazioni fanno silenziosamente
+fallback su CPU. Sviluppo e test su entrambe le macchine, training pesante (Fasi 3 e 5)
+su quella con la 3050.
+
 ## Note su VRAM e stabilità
 
 6 GB sono sufficienti per il modello previsto (~1,5 GB in fp16 con batch 512), ma il margine

@@ -55,6 +55,21 @@ nei dati scaricati comunque, non una campagna di annotazione. Avendo escluso la
 distillazione, sono l'unico correttivo disponibile per la componente debole.
 **Reversibilita:** alta, e un peso di loss in `configs/default.yaml`.
 
+### 2026-08-07 — Progetto cross-platform Windows + macOS
+**Contesto:** il progetto nasce su Windows con RTX 3050, ma un collaboratore lavora su Mac.
+**Scelta:** rendere `check.py` e `preflight.py` cross-platform, con i criteri specifici
+della piattaforma che diventano **SKIP con motivazione** invece di FAIL. Aggiunto lo
+Stadio 0-bis alla pipeline come prossimo passo assegnato a chi sta su Mac.
+**Alternative scartate:**
+- Ignorare il Mac e sviluppare solo su Windows — perde un collaboratore e, soprattutto,
+  perde un test gratuito: due piattaforme diverse verificano l'assenza di dipendenze
+  dalla piattaforma dentro l'encoder, cosa che una sola macchina non può fare.
+- Rimuovere del tutto i check CUDA per farli passare ovunque — cancellerebbe un controllo
+  reale sulla macchina dove conta. Un criterio inapplicabile va dichiarato tale, non tolto.
+**Conseguenza:** i file golden dello Stadio 1 diventano anche un test di portabilità: se
+divergono fra le due macchine, c'è un bug dipendente dalla piattaforma.
+**Reversibilità:** alta.
+
 ### 2026-08-07 — Cython/Rust fuori dall'ambiente iniziale
 **Contesto:** §4.3 ipotizza di riscrivere la generazione mosse.
 **Scelta:** non includere `cython`/`maturin` nel venv adesso.

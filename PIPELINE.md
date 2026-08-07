@@ -92,6 +92,44 @@ Ambiente riproducibile, dipendenze pinnate, hook installati.
 - [ ] `configs/default.yaml` caricabile e validato dallo schema
 - [ ] seed globale riproducibile: due run dello stesso script danno lo stesso output
 
+### Stadio 0-bis — Compatibilità macOS `[assegnato: collaboratore su Mac]`
+
+**Prossimo passo per chi lavora su Mac.** Va fatto *prima* dello Stadio 1: se l'ambiente
+non è portabile, ogni modulo scritto nel frattempo va riverificato due volte.
+
+Il progetto è stato impostato su Windows + RTX 3050. Su Mac cambia il backend di calcolo:
+niente CUDA, quindi il device è **MPS** (Apple Silicon) o CPU (Intel). Diversi criteri del
+Gate 0 non si applicano e vanno resi condizionali invece che rimossi.
+
+**Gate 0-bis** (`--stage setup` su macOS)
+- [ ] `py -3.11` → su Mac è `python3.11`; venv creato e attivo
+- [ ] **torch senza indice CUDA**: su macOS `pip install torch` prende la build giusta,
+      l'`--index-url .../cu126` non ha wheel per Mac e fallisce. Documentare il comando corretto
+- [ ] `torch.backends.mps.is_available()` su Apple Silicon, oppure CPU dichiarata esplicitamente
+- [ ] `scripts/check.py --stage setup` verde: i check `torch + CUDA` e `VRAM >= 5 GB` devono
+      diventare **SKIP con motivazione**, non FAIL — un criterio che non si applica non è un
+      criterio fallito
+- [ ] `scripts/preflight.py` gira senza `nvidia-smi`: sostituire con l'equivalente Mac
+      (`powermetrics`, o SKIP dichiarato) e `pmset -g batt` al posto del check WMI su Win32_Battery
+- [ ] `python scripts/check.py --level 2` verde
+- [ ] Stockfish: binario macOS (arm64 o x86_64) in `tools/stockfish/`, percorso in config
+- [ ] Tutti i pin di `requirements*.txt` risolvibili su macOS; se una versione non ha wheel
+      Mac, annotarlo in `docs/DECISIONS.md` invece di allentare il pin di nascosto
+
+**Cosa NON va cambiato:** i criteri numerici dei gate successivi. Il device cambia, la
+correttezza no — l'encoder deve produrre gli stessi tensori bit a bit su entrambe le macchine.
+
+> **Verifica incrociata fra le due macchine** — il vero motivo per cui questo stadio esiste:
+> una volta pronto lo Stadio 1, i file golden in `tests/golden/` devono passare **identici**
+> su Windows e su Mac. Se divergono, c'è una dipendenza dalla piattaforma dentro l'encoder
+> (ordine di iterazione, dtype di default, endianness nello storage) — esattamente il tipo di
+> bug silenzioso contro cui è costruita questa pipeline. Due macchine diverse sono un test
+> che una sola non può fare.
+
+**Nota sul training:** MPS regge la Fase 3 ma è più lento di CUDA e alcune operazioni fanno
+fallback su CPU. La divisione del lavoro sensata è: sviluppo e test su entrambe, training
+pesante (Fasi 3 e 5) sulla macchina con la 3050.
+
 ### Stadio 1 — Encoder e codifica mosse (§2.3-2.4)
 Il fondamento. Tutto il resto ci si appoggia, quindi qui i check sono più severi che altrove.
 
@@ -221,6 +259,7 @@ Segue §"Ordine di attacco" del piano, con i gate innestati:
 | # | Cosa | Gate da superare |
 |---|---|---|
 | 1 | Setup ambiente | Gate 0 |
+| 1-bis | Compatibilità macOS `[collaboratore su Mac]` | Gate 0-bis |
 | 2 | Encoder + codifica mosse + batteria test | **Gate 1** |
 | 3 | Baseline minimax | Gate 2 |
 | 4 | Pipeline dati | **Gate 3** |

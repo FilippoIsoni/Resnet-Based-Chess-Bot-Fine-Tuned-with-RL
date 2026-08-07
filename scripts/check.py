@@ -17,22 +17,26 @@ gira non e un check superato.
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src"
 
+# La console Windows di default non e UTF-8: senza questo gli accenti escono come "?".
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+_COLOR = sys.stdout.isatty() and os.environ.get("NO_COLOR") is None
 GREEN, RED, YELLOW, GREY, BOLD, RESET = (
-    "\033[32m",
-    "\033[31m",
-    "\033[33m",
-    "\033[90m",
-    "\033[1m",
-    "\033[0m",
+    ("\033[32m", "\033[31m", "\033[33m", "\033[90m", "\033[1m", "\033[0m")
+    if _COLOR
+    else ("", "", "", "", "", "")
 )
 
 
@@ -44,7 +48,56 @@ class Result:
 
 
 def run(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
-    return subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, **kwargs)
+    return subprocess.run(
+        cmd, cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace", **kwargs
+    )
+
+
+@lru_cache(maxsize=1)
+def project_python() -> str:
+    """Interprete che ha i tool del progetto installati.
+
+    Tre contesti, tre risposte diverse:
+    - shell col venv attivo o CI      -> `sys.executable` va bene
+    - hook pre-commit                 -> gira in un venv ISOLATO che non ha ruff/mypy/pytest
+    - `python scripts/check.py` a mano -> interprete di sistema, senza i tool
+
+    Negli ultimi due casi bisogna risolvere esplicitamente il venv del progetto, altrimenti
+    i check falliscono con "tool non installato" mentre i tool ci sono eccome.
+    """
+    if _has_module(sys.executable, "ruff"):
+        return sys.executable
+
+    for candidate in (ROOT / ".venv" / "Scripts" / "python.exe", ROOT / ".venv" / "bin" / "python"):
+        if candidate.exists():
+            return str(candidate)
+
+    return sys.executable
+
+
+def _has_module(python: str, module: str) -> bool:
+    p = subprocess.run(
+        [
+            python,
+            "-c",
+            f"import importlib.util,sys; sys.exit(0 if importlib.util.find_spec('{module}') else 1)",
+        ],
+        capture_output=True,
+    )
+    return p.returncode == 0
+
+
+def run_module(module: str, *args: str) -> subprocess.CompletedProcess:
+    """Invoca un tool come modulo dell'interprete del progetto.
+
+    Non `subprocess.run(["ruff", ...])`: quello cerca l'eseguibile nel PATH, che fuori da
+    un venv attivo non contiene i tool del progetto.
+    """
+    return run([project_python(), "-m", module, *args])
+
+
+def module_available(module: str) -> bool:
+    return _has_module(project_python(), module)
 
 
 def has_python_sources() -> bool:
@@ -65,38 +118,42 @@ def has_tests(subdir: str = "") -> bool:
 def check_ruff_lint() -> Result:
     if not has_python_sources():
         return Result("ruff lint", "SKIP", "nessun sorgente Python ancora")
-    if shutil.which("ruff") is None:
-        return Result("ruff lint", "FAIL", "ruff non installato (pip install -r requirements-dev.txt)")
-    p = run(["ruff", "check", "src", "tests", "scripts"])
+    if not module_available("ruff"):
+        return Result(
+            "ruff lint", "FAIL", "ruff non installato (pip install -r requirements-dev.txt)"
+        )
+    p = run_module("ruff", "check", "src", "tests", "scripts")
     return Result("ruff lint", "PASS" if p.returncode == 0 else "FAIL", p.stdout.strip()[:600])
 
 
 def check_ruff_format() -> Result:
     if not has_python_sources():
         return Result("ruff format", "SKIP", "nessun sorgente Python ancora")
-    if shutil.which("ruff") is None:
+    if not module_available("ruff"):
         return Result("ruff format", "FAIL", "ruff non installato")
-    p = run(["ruff", "format", "--check", "src", "tests", "scripts"])
+    p = run_module("ruff", "format", "--check", "src", "tests", "scripts")
     return Result("ruff format", "PASS" if p.returncode == 0 else "FAIL", p.stdout.strip()[:600])
 
 
 def check_mypy() -> Result:
     if not has_python_sources():
         return Result("mypy", "SKIP", "nessun sorgente Python ancora")
-    if shutil.which("mypy") is None:
+    if not module_available("mypy"):
         return Result("mypy", "FAIL", "mypy non installato")
-    p = run(["mypy", "src"])
+    p = run_module("mypy", "src")
     return Result("mypy", "PASS" if p.returncode == 0 else "FAIL", p.stdout.strip()[-800:])
 
 
 def check_tests_fast() -> Result:
     if not has_tests():
         return Result("pytest -m fast", "SKIP", "nessun test ancora")
-    p = run(["pytest", "-q", "-m", "fast", "--no-header"])
+    p = run_module("pytest", "-q", "-m", "fast", "--no-header")
     # exit code 5 = nessun test raccolto con quel marker
     if p.returncode == 5:
         return Result("pytest -m fast", "SKIP", "nessun test marcato 'fast'")
-    return Result("pytest -m fast", "PASS" if p.returncode == 0 else "FAIL", p.stdout.strip()[-800:])
+    return Result(
+        "pytest -m fast", "PASS" if p.returncode == 0 else "FAIL", p.stdout.strip()[-800:]
+    )
 
 
 def check_no_large_files() -> Result:
@@ -129,7 +186,7 @@ def check_no_large_files() -> Result:
 def check_tests_all() -> Result:
     if not has_tests():
         return Result("pytest (suite completa)", "SKIP", "nessun test ancora")
-    p = run(["pytest", "-q", "--no-header", "-m", "not slow"])
+    p = run_module("pytest", "-q", "--no-header", "-m", "not slow")
     if p.returncode == 5:
         return Result("pytest (suite completa)", "SKIP", "nessun test raccolto")
     return Result(
@@ -162,40 +219,77 @@ def check_python_version() -> Result:
 
 def check_venv_active() -> Result:
     in_venv = sys.prefix != getattr(sys, "base_prefix", sys.prefix)
+    activate = (
+        "source .venv/bin/activate"
+        if sys.platform != "win32"
+        else ".\\.venv\\Scripts\\Activate.ps1"
+    )
     return Result(
         "venv attivo",
         "PASS" if in_venv else "FAIL",
-        sys.prefix if in_venv else "usare .\\.venv\\Scripts\\Activate.ps1",
+        sys.prefix if in_venv else f"usare {activate}",
     )
 
 
-def check_torch_cuda() -> Result:
+def check_torch_accelerator() -> Result:
+    """Verifica che torch abbia un acceleratore utilizzabile.
+
+    Cross-platform: su Windows/Linux ci si aspetta CUDA, su macOS MPS (Apple Silicon).
+    Un criterio che non si applica alla piattaforma non e un criterio fallito — vedi
+    Stadio 0-bis in PIPELINE.md.
+    """
     try:
         import torch
     except ImportError:
-        return Result("torch + CUDA", "FAIL", "torch non installato — vedi docs/VENV.md")
-    if not torch.cuda.is_available():
+        return Result("torch + acceleratore", "FAIL", "torch non installato — vedi docs/VENV.md")
+
+    if torch.cuda.is_available():
         return Result(
-            "torch + CUDA",
-            "FAIL",
-            f"torch {torch.__version__} senza CUDA — probabile wheel CPU-only, reinstallare da --index-url cu126",
+            "torch + acceleratore",
+            "PASS",
+            f"torch {torch.__version__}, CUDA su {torch.cuda.get_device_name(0)}",
         )
-    return Result("torch + CUDA", "PASS", f"torch {torch.__version__} su {torch.cuda.get_device_name(0)}")
+
+    if sys.platform == "darwin":
+        if torch.backends.mps.is_available():
+            return Result("torch + acceleratore", "PASS", f"torch {torch.__version__}, MPS")
+        return Result(
+            "torch + acceleratore",
+            "SKIP",
+            f"torch {torch.__version__} su CPU — Mac Intel: atteso, training pesante sulla macchina CUDA",
+        )
+
+    return Result(
+        "torch + acceleratore",
+        "FAIL",
+        f"torch {torch.__version__} senza CUDA — probabile wheel CPU-only, reinstallare da --index-url cu126",
+    )
 
 
 def check_vram() -> Result:
     try:
         import torch
     except ImportError:
-        return Result("VRAM >= 5 GB", "SKIP", "torch non installato")
-    if not torch.cuda.is_available():
-        return Result("VRAM >= 5 GB", "SKIP", "CUDA non disponibile")
-    total_gb = torch.cuda.get_device_properties(0).total_memory / 1024**3
-    return Result(
-        "VRAM >= 5 GB",
-        "PASS" if total_gb >= 5.0 else "FAIL",
-        f"{total_gb:.1f} GB",
-    )
+        return Result("memoria acceleratore >= 5 GB", "SKIP", "torch non installato")
+
+    if torch.cuda.is_available():
+        total_gb = torch.cuda.get_device_properties(0).total_memory / 1024**3
+        return Result(
+            "memoria acceleratore >= 5 GB",
+            "PASS" if total_gb >= 5.0 else "FAIL",
+            f"{total_gb:.1f} GB VRAM",
+        )
+
+    if sys.platform == "darwin":
+        # Su Apple Silicon la memoria e unificata: non c'e una VRAM dedicata da misurare,
+        # il limite e la RAM di sistema. Il criterio non si applica.
+        return Result(
+            "memoria acceleratore >= 5 GB",
+            "SKIP",
+            "memoria unificata su macOS, criterio non applicabile",
+        )
+
+    return Result("memoria acceleratore >= 5 GB", "SKIP", "nessun acceleratore CUDA")
 
 
 def check_core_imports() -> Result:
@@ -220,7 +314,7 @@ def check_config_loads() -> Result:
         data = yaml.safe_load(cfg.read_text(encoding="utf-8"))
     except ImportError:
         return Result("configs/default.yaml", "SKIP", "pyyaml non installato")
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         return Result("configs/default.yaml", "FAIL", f"YAML non valido: {e}")
     if not isinstance(data, dict) or "seed" not in data:
         return Result("configs/default.yaml", "FAIL", "manca la chiave 'seed'")
@@ -239,7 +333,7 @@ def check_seed_reproducible() -> Result:
     try:
         sys.path.insert(0, str(SRC))
         from chessbot.utils.seed import set_seed
-    except Exception:  # noqa: BLE001
+    except Exception:
         return Result("seed riproducibile", "SKIP", "chessbot.utils.seed non ancora implementato")
 
     import random
@@ -270,9 +364,7 @@ def _stage_placeholder(stage: str, module: str, tests_dir: str) -> list[Result]:
     """Gate delle fasi successive: SKIP finche il codice non esiste."""
     mod_path = SRC / "chessbot" / module
     # __init__.py non conta: un package vuoto non e un modulo implementato.
-    implemented = mod_path.exists() and any(
-        p.name != "__init__.py" for p in mod_path.glob("*.py")
-    )
+    implemented = mod_path.exists() and any(p.name != "__init__.py" for p in mod_path.glob("*.py"))
     if not implemented:
         return [Result(f"gate {stage}", "SKIP", f"src/chessbot/{module}/ non ancora implementato")]
 
@@ -284,8 +376,10 @@ def _stage_placeholder(stage: str, module: str, tests_dir: str) -> list[Result]:
                 f"codice presente in {module}/ ma nessun test in tests/{tests_dir}/ — regola #6",
             )
         ]
-    p = run(["pytest", "-q", "--no-header", f"tests/{tests_dir}"])
-    return [Result(f"gate {stage}", "PASS" if p.returncode == 0 else "FAIL", p.stdout.strip()[-1000:])]
+    p = run_module("pytest", "-q", "--no-header", f"tests/{tests_dir}")
+    return [
+        Result(f"gate {stage}", "PASS" if p.returncode == 0 else "FAIL", p.stdout.strip()[-1000:])
+    ]
 
 
 # --------------------------------------------------------------------------------------
@@ -293,14 +387,14 @@ def _stage_placeholder(stage: str, module: str, tests_dir: str) -> list[Result]:
 # --------------------------------------------------------------------------------------
 
 LEVEL_1 = [check_ruff_lint, check_ruff_format, check_mypy, check_tests_fast, check_no_large_files]
-LEVEL_2 = LEVEL_1 + [check_tests_all, check_golden_files]
+LEVEL_2 = [*LEVEL_1, check_tests_all, check_golden_files]
 
 STAGES = {
     "setup": [
         check_python_version,
         check_venv_active,
         check_core_imports,
-        check_torch_cuda,
+        check_torch_accelerator,
         check_vram,
         check_config_loads,
         check_precommit_installed,

@@ -30,7 +30,11 @@ def set_seed(seed: int = DEFAULT_SEED, *, deterministic: bool = False) -> int:
     try:
         import numpy as np
 
-        np.random.seed(seed)
+        # NPY002 raccomanda np.random.Generator, che e la scelta giusta per il codice
+        # applicativo. Qui serve pero l'opposto: seedare lo stato GLOBALE legacy, che e
+        # quello che usano i worker del DataLoader e le librerie di terze parti su cui non
+        # abbiamo controllo. Un Generator locale non li raggiungerebbe.
+        np.random.seed(seed)  # noqa: NPY002
     except ImportError:
         pass
 

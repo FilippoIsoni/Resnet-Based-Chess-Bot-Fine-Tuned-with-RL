@@ -19,6 +19,8 @@ comprensione del percorso si.
 
 ## Setup
 
+### Windows + NVIDIA (macchina di riferimento)
+
 ```powershell
 py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
@@ -32,6 +34,26 @@ pip install -e .
 pre-commit install
 python scripts/check.py --stage setup    # deve essere verde prima di iniziare
 ```
+
+### macOS — da verificare (Stadio 0-bis)
+
+```bash
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+
+pip install torch                        # niente --index-url: su Mac non ci sono wheel CUDA
+pip install -r requirements-dev.txt
+pip install -e .
+
+pre-commit install
+python scripts/check.py --stage setup
+```
+
+I check gestiscono già l'assenza di CUDA (i criteri specifici diventano SKIP, non FAIL),
+ma **questo va confermato girandoli davvero su Mac**: è il prossimo passo assegnato al
+collaboratore su quella macchina. Dettagli in [docs/VENV.md](docs/VENV.md#macos--da-verificare-stadio-0-bis)
+e [PIPELINE.md](PIPELINE.md).
 
 ## Uso quotidiano
 
@@ -54,6 +76,10 @@ python scripts/preflight.py              # prima di ogni sessione lunga di train
 
 Prima di tutte: lo **Stadio 1**, encoder e codifica mosse (`--stage encoding`). Tutto il
 resto ci si appoggia.
+
+In parallelo, lo **Stadio 0-bis**: verifica di compatibilità macOS, assegnata al
+collaboratore su Mac. Va chiuso prima dello Stadio 1, così i file golden nascono già
+validati su entrambe le piattaforme.
 
 ## Il principio
 

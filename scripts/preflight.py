@@ -12,6 +12,7 @@ shutdown termico azzerano una notte di training.
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
@@ -19,13 +20,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+_COLOR = sys.stdout.isatty() and os.environ.get("NO_COLOR") is None
 GREEN, RED, YELLOW, GREY, BOLD, RESET = (
-    "\033[32m",
-    "\033[31m",
-    "\033[33m",
-    "\033[90m",
-    "\033[1m",
-    "\033[0m",
+    ("\033[32m", "\033[31m", "\033[33m", "\033[90m", "\033[1m", "\033[0m")
+    if _COLOR
+    else ("", "", "", "", "", "")
 )
 
 MIN_DISK_GB = 20.0
@@ -66,6 +68,14 @@ def nvidia_query(fields: str) -> list[str] | None:
 def check_gpu() -> bool:
     vals = nvidia_query("memory.total,memory.used,temperature.gpu,power.limit")
     if vals is None:
+        if sys.platform == "darwin":
+            # Su Mac non esiste nvidia-smi e la memoria e unificata: non c'e VRAM dedicata
+            # da controllare. Il criterio non si applica, quindi non e un fallimento.
+            return line(
+                "WARN",
+                "GPU",
+                "nvidia-smi assente (macOS) — memoria unificata, controllo non applicabile",
+            )
         return line("FAIL", "GPU", "nvidia-smi non disponibile")
 
     total, used, temp, plimit = float(vals[0]), float(vals[1]), float(vals[2]), vals[3]
@@ -95,9 +105,15 @@ def check_torch() -> bool:
         import torch
     except ImportError:
         return line("FAIL", "torch", "non installato")
-    if not torch.cuda.is_available():
-        return line("FAIL", "torch CUDA", "wheel CPU-only — vedi docs/VENV.md")
-    return line("OK", "torch CUDA", f"{torch.__version__} su {torch.cuda.get_device_name(0)}")
+    if torch.cuda.is_available():
+        return line("OK", "torch CUDA", f"{torch.__version__} su {torch.cuda.get_device_name(0)}")
+    if sys.platform == "darwin":
+        if torch.backends.mps.is_available():
+            return line("OK", "torch MPS", f"{torch.__version__} su Apple Silicon")
+        return line(
+            "WARN", "torch CPU", f"{torch.__version__} — training pesante sulla macchina CUDA"
+        )
+    return line("FAIL", "torch CUDA", "wheel CPU-only — vedi docs/VENV.md")
 
 
 def check_checkpoint_dir() -> bool:
@@ -114,9 +130,7 @@ def check_checkpoint_dir() -> bool:
 
 def check_git_clean() -> bool:
     """Un run non riproducibile non e un risultato (regola #2)."""
-    p = subprocess.run(
-        ["git", "status", "--porcelain"], cwd=ROOT, capture_output=True, text=True
-    )
+    p = subprocess.run(["git", "status", "--porcelain"], cwd=ROOT, capture_output=True, text=True)
     dirty = [x for x in p.stdout.split("\n") if x.strip()]
     if dirty:
         return line(
@@ -131,16 +145,27 @@ def check_git_clean() -> bool:
 
 
 def check_power_plugged() -> bool:
+    """Una sessione notturna a batteria si interrompe a meta. Vale su entrambe le piattaforme."""
+    if sys.platform == "darwin":
+        cmd = ["pmset", "-g", "batt"]
+    elif sys.platform == "win32":
+        # BatteryStatus: 1 = a batteria, 2 = alimentazione esterna
+        cmd = [
+            "powershell",
+            "-NoProfile",
+            "-Command",
+            "(Get-CimInstance Win32_Battery).BatteryStatus",
+        ]
+    else:
+        return line("WARN", "alimentazione", "controllo non implementato su questa piattaforma")
+
     try:
-        out = subprocess.run(
-            ["powershell", "-NoProfile", "-Command",
-             "(Get-CimInstance Win32_Battery).BatteryStatus"],
-            capture_output=True, text=True, timeout=20,
-        ).stdout.strip()
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=20).stdout.strip()
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return line("WARN", "alimentazione", "stato non determinabile")
-    # 1 = a batteria, 2 = alimentazione esterna
-    if out.startswith("1"):
+
+    on_battery = "Battery Power" in out if sys.platform == "darwin" else out.startswith("1")
+    if on_battery:
         return line("WARN", "alimentazione", "a batteria — collegare il caricatore")
     return line("OK", "alimentazione", "collegata")
 
