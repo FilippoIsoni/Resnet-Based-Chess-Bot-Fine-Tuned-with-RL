@@ -1,0 +1,58 @@
+# --- Ambiente ---
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# --- Dati e artefatti: regola #5, non entrano MAI in git ---
+# Si ignora il CONTENUTO, non la cartella: con "data/" git non discende piu nella
+# directory e nessuna negazione successiva puo riabilitare i .gitkeep.
+data/*
+!data/raw/
+data/raw/*
+!data/processed/
+data/processed/*
+!data/books/
+data/books/*
+runs/*
+tools/
+*.pgn
+*.pgn.zst
+*.zst
+*.npy
+*.npz
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.bin
+
+# --- Log e cache di test ---
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.coverage
+htmlcov/
+events.out.tfevents.*
+wandb/
+
+# --- Ambiente locale ---
+.env
+.DS_Store
+Thumbs.db
+
+# --- IDE ---
+.vscode/
+.idea/
+
+# Eccezioni: i file golden sono piccoli e DEVONO essere versionati,
+# altrimenti i test di regressione dell'encoder non hanno riferimento.
+!tests/golden/*.json
+
+# Struttura delle cartelle tracciata, contenuto no.
+!**/.gitkeep

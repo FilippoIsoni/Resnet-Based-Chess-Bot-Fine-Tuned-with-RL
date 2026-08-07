@@ -1,0 +1,13 @@
+# Normalizzazione dei line ending: il repo e sviluppato su Windows ma la CI gira su
+# Linux. Senza questo file i diff si riempiono di righe cambiate solo per il CRLF.
+* text=auto eol=lf
+
+# Binari: mai toccati.
+*.pt binary
+*.pth binary
+*.onnx binary
+*.bin binary
+*.npy binary
+*.npz binary
+*.zst binary
+*.pgn -text

@@ -1,0 +1,21 @@
+# Strumenti di sviluppo e di check. Sono cio che rende eseguibile PIPELINE.md.
+
+-r requirements.txt
+
+# --- Test ---
+pytest==8.4.2
+pytest-cov==7.1.0
+pytest-xdist==3.8.0
+hypothesis==6.140.4
+
+# --- Qualita del codice (livello L1) ---
+ruff==0.14.3
+mypy==1.18.2
+pre-commit==4.6.1
+
+# --- Type stubs ---
+types-PyYAML==6.0.12.20260724
+
+# --- Profiling (solo quando serve, vedi regola #4) ---
+py-spy==0.4.1
+snakeviz==2.2.2

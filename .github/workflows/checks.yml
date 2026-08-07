@@ -1,0 +1,35 @@
+# CI — esegue i livelli L1 e L2 di PIPELINE.md su ogni push e PR.
+#
+# I gate di fase (L3) NON girano qui: richiedono GPU, dataset e partite vere.
+# Restano locali, lanciati con `python scripts/check.py --stage <nome>`.
+
+name: checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  level-1-2:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Installa le dipendenze (torch CPU — in CI non serve CUDA)
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements-dev.txt
+          pip install -e .
+
+      - name: Livello 1 — lint, format, type check, test veloci
+        run: python scripts/check.py --level 1
+
+      - name: Livello 2 — suite completa
+        run: python scripts/check.py --level 2

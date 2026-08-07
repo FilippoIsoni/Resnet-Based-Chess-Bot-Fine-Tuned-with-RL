@@ -1,0 +1,34 @@
+# Hook di livello L1 (PIPELINE.md §1). Installare una volta con:
+#   pre-commit install
+#
+# Bypassare con --no-verify e una decisione da annotare in docs/DECISIONS.md,
+# non un'abitudine.
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=5000]     # regola #5: pesi e dataset fuori da git
+      - id: detect-private-key
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.3
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: check-level-1
+        name: check.py --level 1 (gate L1)
+        entry: python scripts/check.py --level 1
+        language: system
+        pass_filenames: false
+        always_run: true

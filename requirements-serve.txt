@@ -1,0 +1,12 @@
+# Dipendenze del solo backend di deployment (Appendice B).
+# Deliberatamente SENZA torch: si spedisce ONNX, non PyTorch.
+# La wheel torch CPU supera i 200 MB, onnxruntime sta in ~15.
+
+chess==1.11.2
+numpy==2.2.6
+pyyaml==6.0.2
+pydantic==2.13.4
+
+onnxruntime==1.23.2
+fastapi==0.141.1
+uvicorn[standard]==0.52.1

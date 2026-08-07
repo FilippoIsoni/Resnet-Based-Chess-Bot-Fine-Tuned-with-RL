@@ -1,0 +1,83 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "chessbot"
+version = "0.1.0"
+description = "Motore scacchistico ResNet + MCTS, fine-tuned con Expert Iteration"
+requires-python = ">=3.11,<3.12"
+dynamic = ["dependencies"]
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# ------------------------------------------------------------------------------------
+# pytest
+# ------------------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "--strict-markers -ra"
+markers = [
+    "fast: test veloci, girano ad ogni commit (livello L1)",
+    "slow: test lenti (partite vere, dataset grandi) — esclusi da L1 e L2",
+    "golden: confronto con i file di riferimento in tests/golden/",
+    "gpu: richiede CUDA disponibile",
+]
+
+# ------------------------------------------------------------------------------------
+# ruff — lint + format, sostituisce flake8/black/isort
+# ------------------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests", "scripts"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle
+    "F",        # pyflakes
+    "I",        # isort
+    "B",        # bugbear
+    "UP",       # pyupgrade
+    "SIM",      # simplificazioni
+    "RUF",
+    "NPY",      # regole numpy
+]
+ignore = [
+    "E501",     # lunghezza riga: la gestisce il formatter
+    "B905",     # zip senza strict=: rumoroso qui
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]           # assert nei test e il punto
+
+# ------------------------------------------------------------------------------------
+# mypy
+# ------------------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.11"
+files = ["src"]
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unreachable = true
+# Non si parte con strict: si stringe man mano che i moduli si stabilizzano.
+disallow_untyped_defs = false
+
+[[tool.mypy.overrides]]
+# L'encoder e il fondamento di tutto: qui i tipi sono obbligatori (Stadio 1).
+module = "chessbot.encoding.*"
+disallow_untyped_defs = true
+
+[tool.coverage.run]
+source = ["src/chessbot"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true

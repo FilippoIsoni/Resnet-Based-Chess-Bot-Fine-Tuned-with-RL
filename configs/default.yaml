@@ -1,0 +1,80 @@
+# Configurazione unica del progetto (§Fase 1 del piano).
+# Ogni run salva una copia di questo file accanto ai pesi, insieme al commit hash:
+# un risultato che non sai riprodurre non e un risultato (regola #2).
+#
+# Lo schema e validato da pydantic in src/chessbot/utils/config.py: un typo qui
+# fa fallire il run all'avvio invece di cambiare silenziosamente un iperparametro.
+
+seed: 1337
+
+paths:
+  data_raw: data/raw            # PGN scaricati, .pgn.zst
+  data_processed: data/processed # shard pronti per il DataLoader
+  books: data/books             # libri Polyglot .bin
+  runs: runs                    # checkpoint e log TensorBoard
+  stockfish: tools/stockfish/stockfish.exe
+
+encoding:
+  planes: 19                    # §2.3 — 12 pezzi + 4 arrocco + ep + 50mosse + ripetizioni
+  board_size: 8
+  n_moves: 4672                 # §2.4 — 8x8x73, schema AlphaZero
+  orient_to_side_to_move: true  # criticita #1: se true, flippare ANCHE l'indice mossa
+
+data:
+  min_elo: 2000                 # §2.1
+  time_controls: [rapid, classical]
+  exclude_timeout_in_non_lost: true
+  prefer_annotated_eval: true   # partite con [%eval ...]
+  max_occurrences_per_fen: 3000 # capping aperture, §2.1
+  split:
+    train: 0.95
+    val: 0.025
+    test: 0.025
+    by: game                    # criticita #3 — MAI 'position'
+  dedup_fen_across_splits: true
+  target_positions: 15_000_000  # 5_000_000 nella variante minimale
+  workers: 6
+
+model:
+  channels: 128
+  blocks: 8
+  policy_head_channels: 32
+  value_head_channels: 8
+  value_hidden: 128
+  wdl: true                     # 3 uscite softmax invece di tanh scalare, §3.1
+
+train:
+  optimizer: adamw
+  lr: 1.0e-3
+  warmup_steps: 2000
+  schedule: cosine
+  weight_decay: 1.0e-4
+  batch_size: 512
+  epochs: 12
+  amp: true
+  label_smoothing: 0.05
+  loss_weights:
+    policy: 1.0
+    wdl: 0.5
+    eval_mse: 0.5              # solo dove [%eval] e disponibile
+  dataloader:
+    num_workers: 6
+    pin_memory: true
+  checkpoint_every_steps: 2000  # §Fase 1: pesi + optimizer + posizione dataset + seed
+
+search:
+  simulations: 400
+  c_puct: 2.0
+  batch_size_leaves: 24         # §4.3, batching foglie con virtual loss
+  virtual_loss: 3.0
+  use_opening_book: true
+  book_max_ply: 20              # ~8-12 mosse per parte, §4.6
+
+eval:
+  games_per_match: 200          # sotto questa soglia il rumore mangia il segnale
+  stockfish_elo_ladder: [1400, 1800, 2200]
+  confidence_interval: true     # regola #1 — sempre riportato
+
+logging:
+  backend: tensorboard          # oppure 'wandb'
+  log_every_steps: 50

@@ -1,0 +1,48 @@
+# Configurazione della Fase 5 — Expert Iteration.
+# Eredita da default.yaml e ne sovrascrive le sezioni.
+#
+# I criteri di stop stanno QUI e non "a sentimento" (criticita #9): un ciclo RL senza
+# condizione di abbandono fissata in anticipo diventa un pozzo di tempo.
+
+extends: default.yaml
+
+rl:
+  games_per_iteration: 500
+  simulations_per_move: 175     # 50-80 se il tempo stringe
+  parallel_games: 96            # criticita #8 — batching FRA partite, non solo fra foglie
+  dirichlet_alpha: 0.3
+  dirichlet_weight: 0.25
+  temperature: 1.0
+  temperature_moves: 15         # poi ~0
+  replay_buffer_iterations: 9
+  epochs_per_iteration: 3
+
+  optimizer: sgd                # piu stabile di Adam sotto distribution shift
+  momentum: 0.9
+  lr: 1.0e-4
+
+  kl_penalty_weight: 0.075      # ancora alla policy supervisionata, §5.2
+
+  value_target:                 # §5.5 — target misto invece del risultato puro
+    alpha_q_root: 0.4           # target = alpha*Q_radice + (1-alpha)*z
+
+  openings:                     # criticita #7 — contro le patte nel self-play
+    randomize_start: true
+    book: data/books/balanced.bin
+    plies: 8
+    max_draw_rate: 0.70         # sopra: aumentare la diversita
+
+  gating:
+    games: 200                  # con 100 il rumore e +-5%, la soglia 55% sarebbe dentro il rumore
+    win_rate_threshold: 0.55
+    use_sprt: true
+    sprt_elo0: 0
+    sprt_elo1: 25
+    sprt_alpha: 0.05
+    sprt_beta: 0.05
+
+  stop_criteria:                # criticita #9 — fissati PRIMA di iniziare
+    max_iterations: 40                      # tetto duro
+    abort_if_no_gating_pass_within: 10      # iterazioni
+    abort_if_cumulative_elo_below: 50       # dopo abort_elo_check_at iterazioni
+    abort_elo_check_at: 25

@@ -1,0 +1,23 @@
+# Dipendenze runtime. Vedi docs/VENV.md per il perche di ognuna.
+#
+# ATTENZIONE: torch NON e elencato qui di proposito.
+# Va installato PRIMA e dal suo indice CUDA, altrimenti pip risolve la variante CPU-only:
+#   pip install torch==2.13.0+cu126 --index-url https://download.pytorch.org/whl/cu126
+#
+# Nota: il pacchetto PyPI di python-chess si chiama "chess" (l'import e "import chess").
+
+# --- Nucleo ---
+chess==1.11.2
+numpy==2.2.6
+pyyaml==6.0.2
+pydantic==2.13.4
+tqdm==4.70.0
+
+# --- Dati (Fase 2) ---
+zstandard==0.25.0
+
+# --- Monitoraggio training (Fase 3) ---
+tensorboard==2.20.0
+
+# --- Valutazione, SPRT e intervalli di confidenza (Fasi 3-5) ---
+scipy==1.16.3
