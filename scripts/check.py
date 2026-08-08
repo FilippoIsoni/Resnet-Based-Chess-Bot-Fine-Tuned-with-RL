@@ -360,6 +360,141 @@ def check_stockfish() -> Result:
 # --------------------------------------------------------------------------------------
 
 
+def check_encoding_gate() -> list[Result]:
+    """Gate 1 — encoder e codifica mosse (§2.5).
+
+    Non delega alla suite intera: elenca i criteri del piano uno per uno, cosi il
+    report dice QUALE criterio e rosso invece di un generico "pytest fallito".
+    """
+    mod = SRC / "chessbot" / "encoding"
+    if not any(p.name != "__init__.py" for p in mod.glob("*.py")):
+        return [Result("gate encoding", "SKIP", "src/chessbot/encoding/ non ancora implementato")]
+
+    results: list[Result] = []
+
+    # Il golden deve coincidere con cio che l'encoder produce adesso. E anche il
+    # confronto Windows/macOS dello Stadio 0-bis.
+    p = run([project_python(), "scripts/gen_golden.py", "--check"])
+    results.append(
+        Result(
+            "golden invariato",
+            "PASS" if p.returncode == 0 else "FAIL",
+            (p.stdout + p.stderr).strip()[:400],
+        )
+    )
+
+    # I criteri di §2.5, mappati sui test che li verificano.
+    criteri = {
+        "20 posizioni golden": "test_golden_corrisponde_all_encoder_attuale",
+        "round-trip mossa<->indice": "test_round_trip_su_mosse_legali",
+        "simmetria specchiata (criticita #1)": "test_simmetria_specchiata_tensore_e_indice",
+        "promozione a donna (criticita #4)": "test_promozione_a_donna_nel_blocco_mosse_da_regina",
+        "somma piani == n. pezzi": "test_somma_piani_pezzi_uguale_numero_pezzi",
+        "encoder vs re-parsing FEN": "test_ricostruzione_fen_dal_tensore",
+        "nessun indice fuori [0, 4671]": "test_nessun_indice_fuori_range_su_tutto_il_campione",
+    }
+    for etichetta, test_name in criteri.items():
+        p = run_module("pytest", "-q", "--no-header", "tests/unit", "-k", test_name)
+        if p.returncode == 5:
+            results.append(Result(etichetta, "FAIL", f"test '{test_name}' non trovato"))
+        else:
+            results.append(
+                Result(
+                    etichetta,
+                    "PASS" if p.returncode == 0 else "FAIL",
+                    "" if p.returncode == 0 else p.stdout.strip()[-500:],
+                )
+            )
+
+    # La suite completa dell'encoding, per cio che i criteri sopra non nominano.
+    p = run_module("pytest", "-q", "--no-header", "tests/unit")
+    results.append(
+        Result(
+            "suite tests/unit completa",
+            "PASS" if p.returncode == 0 else "FAIL",
+            p.stdout.strip()[-600:],
+        )
+    )
+    return results
+
+
+def check_baseline_gate() -> list[Result]:
+    """Gate 2 — baseline minimax (§3, Stadio 2).
+
+    Il criterio "batte random 100/100" e lento: qui si verifica il risultato salvato da
+    `scripts/run_gate2_match.py`, invece di rigiocare il match ad ogni invocazione. Un
+    risultato senza file e un criterio non verificato, quindi SKIP con l'istruzione per
+    produrlo — non PASS.
+    """
+    mod = SRC / "chessbot" / "baseline"
+    if not any(p.name != "__init__.py" for p in mod.glob("*.py")):
+        return [Result("gate baseline", "SKIP", "src/chessbot/baseline/ non ancora implementato")]
+
+    results: list[Result] = []
+
+    criteri = {
+        "perft su posizioni standard": ("tests/unit", "test_perft_fino_a_profondita_3"),
+        "valutazione simmetrica (criticita #2)": (
+            "tests/unit",
+            "test_invarianza_per_specchiatura_completa or test_antisimmetria_per_cambio_di_tratto",
+        ),
+        "matto in 1 su 50 posizioni": ("tests/unit", "test_trova_matto_in_1_su_50_posizioni"),
+    }
+    for etichetta, (path, expr) in criteri.items():
+        p = run_module("pytest", "-q", "--no-header", path, "-k", expr)
+        if p.returncode == 5:
+            results.append(Result(etichetta, "FAIL", f"nessun test corrisponde a '{expr}'"))
+        else:
+            results.append(
+                Result(
+                    etichetta,
+                    "PASS" if p.returncode == 0 else "FAIL",
+                    "" if p.returncode == 0 else p.stdout.strip()[-500:],
+                )
+            )
+
+    # Perft profondo e match brevi: marcati slow, esclusi dai livelli 1 e 2.
+    p = run_module("pytest", "-q", "--no-header", "tests/integration", "-m", "slow")
+    if p.returncode == 5:
+        results.append(Result("perft profondo e match brevi", "SKIP", "nessun test slow"))
+    else:
+        results.append(
+            Result(
+                "perft profondo e match brevi",
+                "PASS" if p.returncode == 0 else "FAIL",
+                p.stdout.strip()[-600:],
+            )
+        )
+
+    results.append(_check_gate2_match_result())
+    return results
+
+
+def _check_gate2_match_result() -> Result:
+    """Legge l'ultimo match salvato in runs/gate2/ e ne verifica il criterio."""
+    import json
+
+    runs = ROOT / "runs" / "gate2"
+    files = sorted(runs.glob("match_random_*.json")) if runs.exists() else []
+    if not files:
+        return Result(
+            "batte random 100/100",
+            "SKIP",
+            "nessun match registrato — eseguire: python scripts/run_gate2_match.py",
+        )
+
+    try:
+        data = json.loads(files[-1].read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        return Result("batte random 100/100", "FAIL", f"{files[-1].name} illeggibile: {e}")
+
+    wins, games = data.get("wins", 0), data.get("games", 0)
+    detail = f"{data.get('summary', '')} [commit {data.get('commit', '?')}]"
+    if games < 100:
+        return Result("batte random 100/100", "FAIL", f"solo {games} partite giocate. {detail}")
+    return Result("batte random 100/100", "PASS" if wins == games else "FAIL", detail)
+
+
 def _stage_placeholder(stage: str, module: str, tests_dir: str) -> list[Result]:
     """Gate delle fasi successive: SKIP finche il codice non esiste."""
     mod_path = SRC / "chessbot" / module
@@ -401,8 +536,8 @@ STAGES = {
         check_seed_reproducible,
         check_stockfish,
     ],
-    "encoding": lambda: _stage_placeholder("encoding", "encoding", "unit"),
-    "baseline": lambda: _stage_placeholder("baseline", "baseline", "integration"),
+    "encoding": check_encoding_gate,
+    "baseline": check_baseline_gate,
     "data": lambda: _stage_placeholder("data", "data", "integration"),
     "train": lambda: _stage_placeholder("train", "training", "integration"),
     "mcts": lambda: _stage_placeholder("mcts", "search", "integration"),
