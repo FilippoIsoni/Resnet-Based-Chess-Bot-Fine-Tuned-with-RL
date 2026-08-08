@@ -126,11 +126,21 @@ nell'ordinamento MVV-LVA e nella quiescence prima di guardare la riga giusta.
 
 **Il fix:** finestra piena `(-INFINITY, INFINITY)` ad ogni mossa della radice. Costa
 circa 2-3x nei nodi visitati — accettabile a questa profondita, e la potatura vera resta
-dentro `_negamax`. Effetto immediato, a parita di seed:
+dentro `_negamax`. Effetto sul match ufficiale, stesso seed e stesso setup:
 
-| | prima | dopo |
-|---|---|---|
-| depth 2, 6 partite | 0W-3L-5D | **6W-0L-0D** |
+| | Partite | Risultato | Elo |
+|---|---|---|---|
+| Prima | 100 | 14W-9L-77D (52.5%) | +17 ± 68 |
+| Dopo | 100 | **100W-0L-0D (100%)** | non stimabile |
+
+Una riga di codice fra un motore indistinguibile dal caso e un cappotto.
+
+**Nota su cosa NON era il problema.** Le due voci precedenti (finali non convertiti,
+ripetizioni) descrivono correzioni reali e utili, ma marginali: con la finestra rotta la
+baseline non arrivava quasi mai a un finale vinto. Averle scritte per prime ha allungato
+la diagnosi — cercavo un difetto di *tecnica scacchistica* mentre il difetto era di
+*algoritmo*. Quando i sintomi sono diffusi (nessun singolo errore vistoso, degrado
+graduale ovunque), la causa e piu probabilmente strutturale che di dominio.
 
 **Il test che lo avrebbe intercettato** (regola #6):
 `test_le_mosse_pari_merito_sono_davvero_equivalenti` — su una posizione con una sola
