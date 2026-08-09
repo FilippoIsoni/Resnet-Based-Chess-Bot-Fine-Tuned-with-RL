@@ -94,27 +94,40 @@ Costo: il tempo per partita passa da 20.6 s a 35.7 s (~1.7x), atteso e accettato
 
 ## Pipeline dati (Stadio 3)
 
-### 2026-08-09 — Dataset da lichess_db_standard_rated_2026-07
-- Commit: `44d144b`
+### 2026-08-09 — Dataset da lichess_db_standard_rated_2026-07 (definitivo)
+- Commit: `669d452`
 - Comando: `python scripts/build_dataset.py --input data/raw/lichess_db_standard_rated_2026-07.pgn.zst --target-positions 20000000`
 - Manifest: `data/processed/manifest.json`
 
 | | |
 |---|---|
-| Partite lette | 26.951.110 |
-| Partite tenute | **273.759 (1,02%)** |
+| Partite lette | 26.997.925 |
+| Partite tenute | **274.160 (1,02%)** |
 | Posizioni | **20.000.000** (~73 per partita) |
 | Dimensione su disco | **2,0 GB** (105 byte/posizione) |
-| Tempo | 114 min (2.929 posizioni/s) |
-| Con `[%eval]` | 6.638.931 (33,2%) |
+| Tempo | 94 min (3.540 posizioni/s) |
+| Con `[%eval]` | 33,2% |
 
 **Split (per PARTITA — criticita #3):**
 
-| Split | Posizioni | % | Partite | Shard |
-|---|---|---|---|---|
-| train | 19.109.308 | 95,55% | 259.958 | 77 |
-| val | 450.765 | 2,25% | 6.899 | 2 |
-| test | 439.927 | 2,20% | 6.894 | 2 |
+| Split | Posizioni | % | Partite |
+|---|---|---|---|
+| train | 19.117.346 | 95,59% | 260.340 |
+| val | 447.011 | 2,24% | 6.917 |
+| test | 435.643 | 2,18% | 6.903 |
+
+**Verifica del leakage**, misurata sugli shard scritti (campione 1,88M posizioni):
+
+| | Prima del fix | Dopo |
+|---|---|---|
+| condivise train-val | 1.421 | **0** |
+| condivise train-test | 1.459 | **0** |
+| condivise val-test | 414 | **0** |
+
+Il primo dataset (commit `44d144b`) aveva ~0,17% di posizioni in due split: la deduplica
+confrontava le FEN complete invece della sola posizione. Rigenerato dopo il fix. Le
+posizioni scartate per deduplica salgono da 326.241 a 346.210 — la differenza e il
+leakage chiuso.
 
 **Distribuzione esiti:** vittorie bianco 45,4%, patte 11,6%, sconfitte bianco 43,0%.
 Sensata: il vantaggio del tratto c'e ma e piccolo, e la quota di patte e bassa perche il

@@ -92,10 +92,18 @@ def main() -> int:
         manifest.get("split", {}).get("by") == "game",
         f"by={manifest.get('split', {}).get('by')}",
     )
+    # `games_kept` conta le partite ACCETTATE dai filtri; `games_per_split` quelle che
+    # hanno contribuito almeno una posizione. Sono diverse quando una partita perde tutte
+    # le sue posizioni per deduplica o capping — succede alle partite corte fatte di sole
+    # aperture arcinote. Misurato: 8 partite su 274.168. Il criterio giusto e quindi
+    # "nessuna partita in piu", non l'uguaglianza esatta.
+    kept = manifest.get("games_kept", -1)
+    persi = kept - total_games
     ok &= report(
         "partite ripartite fra gli split",
-        total_games == manifest.get("games_kept", -1),
-        f"{per_split_games}",
+        0 <= persi <= kept * 0.001,
+        f"{total_games:,} negli split su {kept:,} accettate"
+        + (f" ({persi} senza posizioni: tutte scartate da dedup/capping)" if persi else ""),
     )
 
     # --- 2. Lettura degli shard e FEN per split ---------------------------------------
