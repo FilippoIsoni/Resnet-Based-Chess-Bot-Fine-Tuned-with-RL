@@ -92,7 +92,28 @@ Costo: il tempo per partita passa da 20.6 s a 35.7 s (~1.7x), atteso e accettato
 |---|---|---|---|---|---|
 | — | Stockfish UCI_Elo=1400 | — | — | — | — |
 
-## Pipeline dati (Stadio 3)
+## Pipeline dati (Stadio 3) — Gate 3 VERDE (criteri automatici)
+
+### 2026-08-09 — Verifica completa sui 20M
+- Comando: `python scripts/verify_dataset.py --data data/processed --inspect 20`
+
+| Criterio | Esito |
+|---|---|
+| Split per PARTITA dichiarato | PASS |
+| Partite ripartite fra gli split | PASS — 274.160 su 274.168 (8 senza posizioni) |
+| Round-trip storage, mosse legali | PASS — **20.000.000 posizioni, 0 illegali** |
+| 0 FEN condivise fra split | PASS — **0 sovrapposizioni** |
+| Capping aperture | PASS — massimo osservato 3.000, esattamente il cap |
+| Distribuzione esiti sensata | PASS — 45,4% / 11,6% / 43,0% |
+
+Il round-trip e il controllo piu forte: ogni posizione e stata ricostruita dai bitboard
+e ogni indice mossa decodificato, verificando che la mossa risultante fosse legale nella
+posizione ricostruita. Zero fallimenti su venti milioni.
+
+**Resta l'ispezione manuale** (criterio non automatizzabile del Gate 3): 20 campioni in
+[ISPEZIONE_GATE3.md](ISPEZIONE_GATE3.md), da guardare con gli occhi.
+
+
 
 ### 2026-08-09 — Dataset da lichess_db_standard_rated_2026-07 (definitivo)
 - Commit: `669d452`

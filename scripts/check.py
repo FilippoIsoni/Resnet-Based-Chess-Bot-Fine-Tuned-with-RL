@@ -553,7 +553,20 @@ def _check_built_dataset() -> Result:
             "nessun dataset — eseguire: python scripts/build_dataset.py --input <dump>",
         )
 
-    p = run([project_python(), "scripts/verify_dataset.py", "--data", str(processed)])
+    # Solo i primi shard per split: rileggere i 20M interi costa ~25 minuti, troppo per
+    # un gate che si lancia spesso. La verifica completa e comunque stata fatta una volta
+    # e registrata in docs/RESULTS.md; si rilancia esplicitamente, senza il limite, prima
+    # di un training vero.
+    p = run(
+        [
+            project_python(),
+            "scripts/verify_dataset.py",
+            "--data",
+            str(processed),
+            "--shards-per-split",
+            "2",
+        ]
+    )
     detail = ""
     for line in (p.stdout or "").splitlines():
         if "totale:" in line:

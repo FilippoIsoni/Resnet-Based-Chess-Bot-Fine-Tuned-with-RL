@@ -65,6 +65,16 @@ def main() -> int:
         default=2_000_000,
         help="quante FEN per split tenere in memoria per il controllo di sovrapposizione",
     )
+    ap.add_argument(
+        "--shards-per-split",
+        type=int,
+        default=None,
+        help=(
+            "quanti shard leggere per split (default: tutti). Rileggere i 20M interi "
+            "costa ~25 minuti: per il gate ne bastano pochi, la verifica completa si "
+            "lancia esplicitamente prima di un training vero."
+        ),
+    )
     args = ap.parse_args()
 
     manifest_path = args.data / "manifest.json"
@@ -115,10 +125,14 @@ def main() -> int:
     campioni: list[tuple[str, str, str]] = []
     rng = random.Random(args.seed)
 
+    parziale = False
     for split in SPLITS:
         paths = shards_of(args.data, split)
         if not paths:
             continue
+        if args.shards_per_split is not None and len(paths) > args.shards_per_split:
+            paths = paths[: args.shards_per_split]
+            parziale = True
         for path in paths:
             array = read_shard(path)
             for board, move_index, _wdl, _eval in iter_shard_boards(array):
@@ -148,7 +162,8 @@ def main() -> int:
     ok &= report(
         "round-trip storage: tutte le mosse legali",
         illegali == 0,
-        f"{sum(counts.values()):,} posizioni, {illegali} illegali",
+        f"{sum(counts.values()):,} posizioni, {illegali} illegali"
+        + (" (campione — usare senza --shards-per-split per il totale)" if parziale else ""),
     )
 
     shared = 0
