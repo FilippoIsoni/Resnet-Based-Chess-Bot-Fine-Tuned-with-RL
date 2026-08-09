@@ -16,7 +16,8 @@ I dump si leggono in **streaming** dal `.zst`: il 2026-07 sono 27 GB compressi e
 from __future__ import annotations
 
 import io
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TextIO
@@ -92,22 +93,92 @@ def _parse_eval(comment: str) -> int | None:
 
 
 def iter_games(path: Path) -> Iterator[chess.pgn.Game]:
-    """Legge le partite da un `.pgn` o `.pgn.zst`, in streaming."""
+    """Legge tutte le partite, senza filtrare — utile per ispezionare un PGN a mano.
+
+    La pipeline usa `iter_samples`, che filtra sugli header prima di costruire l'albero
+    ed e due ordini di grandezza piu veloce sui dump veri.
+    """
+    with _open_stream(path) as stream:
+        while (game := chess.pgn.read_game(stream)) is not None:
+            yield game
+
+
+@contextmanager
+def _open_stream(path: Path) -> Iterator[TextIO]:
+    """Apre un `.pgn` o `.pgn.zst` come stream di testo, in streaming.
+
+    Context manager perche il caso `.zst` incatena tre oggetti (file, decompressore,
+    wrapper di testo): chiuderli a mano lascerebbe il file aperto se qualcosa fallisce
+    a meta.
+    """
     if path.suffix == ".zst":
         import zstandard
 
         with open(path, "rb") as raw:
             reader = zstandard.ZstdDecompressor().stream_reader(raw)
-            stream: TextIO = io.TextIOWrapper(reader, encoding="utf-8", errors="replace")
-            yield from _read_games(stream)
+            yield io.TextIOWrapper(reader, encoding="utf-8", errors="replace")
     else:
         with open(path, encoding="utf-8", errors="replace") as stream:
-            yield from _read_games(stream)
+            yield stream
 
 
-def _read_games(stream: TextIO) -> Iterator[chess.pgn.Game]:
-    while (game := chess.pgn.read_game(stream)) is not None:
-        yield game
+class _FilteringVisitor(chess.pgn.BaseVisitor):
+    """Costruisce l'albero delle mosse SOLO per le partite che passano i filtri.
+
+    > **Perche non basta `read_game`.** Su un dump Lichess i filtri scartano oltre il 99%
+    > delle partite (misurato: 0.86% tenute sul 2026-07), ma `read_game` costruisce
+    > comunque l'albero completo di ognuna. Misurato sul dump vero: 94 partite/s contro
+    > le 1.702 di questo visitor. Un fattore 18, che sulla conversione e la differenza
+    > fra 27 ore e un'ora e mezza.
+    >
+    > Il gancio e `end_headers`: restituendo `SKIP`, il parser salta il corpo senza
+    > parsarlo. Non si puo ottenere lo stesso con `read_headers` + salto manuale, perche
+    > `read_headers` consuma gia il corpo e si ferma sull'`[Event` successivo — lo stream
+    > non e piu posizionato sulle mosse, e non c'e nulla da saltare.
+    """
+
+    def __init__(self, accept: Callable[[chess.pgn.Headers], bool]) -> None:
+        self._accept = accept
+        self.game = chess.pgn.Game()
+        self.skipped = False
+        self._stack: list[chess.pgn.GameNode] = [self.game]
+
+    def begin_game(self) -> None:
+        self.game = chess.pgn.Game()
+        self.skipped = False
+        self._stack = [self.game]
+
+    def visit_header(self, tagname: str, tagvalue: str) -> None:
+        self.game.headers[tagname] = tagvalue
+
+    def end_headers(self) -> chess.pgn.SkipType | None:
+        if not self._accept(self.game.headers):
+            self.skipped = True
+            return chess.pgn.SKIP
+        return None
+
+    def visit_move(self, board: chess.Board, move: chess.Move) -> None:
+        self._stack[-1] = self._stack[-1].add_variation(move)
+
+    def visit_comment(self, comment: str) -> None:
+        self._stack[-1].comment = comment
+
+    def handle_error(self, error: Exception) -> None:
+        # Un PGN malformato non deve interrompere la conversione: la partita viene
+        # troncata al punto in cui smette di avere senso, ed e `samples_from_game` a
+        # decidere se cio che resta e abbastanza.
+        pass
+
+    def result(self) -> chess.pgn.Game:
+        return self.game
+
+    def as_factory(self) -> Callable[[], _FilteringVisitor]:
+        """Adatta l'istanza all'API di `read_game`, che si aspetta una factory."""
+
+        def factory() -> _FilteringVisitor:
+            return self
+
+        return factory
 
 
 def game_id_of(game: chess.pgn.Game, fallback: int) -> str:
@@ -169,27 +240,43 @@ def iter_samples(
 ) -> Iterator[Sample]:
     """Pipeline completa: PGN -> partite filtrate -> posizioni.
 
-    I filtri sugli header si applicano PRIMA di rigiocare le mosse (§2.1): parsare la
-    notazione di una partita che verra scartata e lavoro buttato, e su un dump Lichess
-    si scarta oltre il 99% delle partite.
+    I filtri sugli header decidono se costruire o no l'albero delle mosse: vedi
+    `_FilteringVisitor`, che e il motivo per cui la conversione dura un'ora e mezza
+    invece di 27.
     """
     config = config or FilterConfig()
     stats = stats if stats is not None else FilterStats()
 
+    def accept(headers: chess.pgn.Headers) -> bool:
+        return accept_headers(dict(headers), config, stats)
+
     accepted = 0
-    for index, game in enumerate(iter_games(path)):
-        if not accept_headers(dict(game.headers), config, stats):
-            continue
+    index = 0
+    with _open_stream(path) as stream:
+        while True:
+            # `read_game` vuole una FACTORY di visitor, non un'istanza: ne creerebbe uno
+            # nuovo ad ogni partita. Qui serve invece tenere il riferimento per leggere
+            # `skipped` dopo, quindi la factory restituisce sempre lo stesso oggetto —
+            # che va bene perche `begin_game` lo reinizializza.
+            visitor = _FilteringVisitor(accept)
+            game = chess.pgn.read_game(stream, Visitor=visitor.as_factory())
+            if game is None:
+                return
 
-        game_id = game_id_of(game, index)
-        samples = samples_from_game(game, game_id, min_moves=config.min_moves)
-        if not samples:
-            stats.reject(f"meno di {config.min_moves} mosse")
-            continue
+            index += 1
+            if visitor.skipped:
+                continue
 
-        stats.kept += 1
-        yield from samples
+            samples = samples_from_game(
+                game, game_id_of(game, index - 1), min_moves=config.min_moves
+            )
+            if not samples:
+                stats.reject(f"meno di {config.min_moves} mosse")
+                continue
 
-        accepted += 1
-        if max_games is not None and accepted >= max_games:
-            return
+            stats.kept += 1
+            yield from samples
+
+            accepted += 1
+            if max_games is not None and accepted >= max_games:
+                return
