@@ -495,6 +495,76 @@ def _check_gate2_match_result() -> Result:
     return Result("batte random 100/100", "PASS" if wins == games else "FAIL", detail)
 
 
+def check_data_gate() -> list[Result]:
+    """Gate 3 — pipeline dati (§3, Stadio 3).
+
+    Due meta distinte:
+    - la LOGICA si verifica con i test su PGN sintetici, che girano sempre
+    - il DATASET prodotto si verifica con `scripts/verify_dataset.py`, che legge gli
+      shard veri. Senza dataset e SKIP con l'istruzione per produrlo, non PASS: un
+      criterio che non gira non e un criterio superato.
+    """
+    mod = SRC / "chessbot" / "data"
+    if not any(p.name != "__init__.py" for p in mod.glob("*.py")):
+        return [Result("gate data", "SKIP", "src/chessbot/data/ non ancora implementato")]
+
+    results: list[Result] = []
+
+    criteri = {
+        "split per PARTITA, 0 game-id condivisi (criticita #3)": (
+            "test_zero_game_id_condivisi_fra_split or test_le_partite_restano_intere"
+        ),
+        "0 FEN condivise fra split": "test_zero_fen_condivise_fra_split",
+        "il controllo anti-leakage sa fallire": "test_lo_split_per_posizione_verrebbe_intercettato",
+        "capping aperture": "test_capping_aperture",
+        "round-trip storage bit a bit": (
+            "test_round_trip_pack_unpack_bit_a_bit or test_shard_scritto_e_riletto_identico"
+        ),
+        "filtri Elo / time control / esito": (
+            "test_accept_headers_scarta or test_categoria_dal_time_control"
+        ),
+        "mosse legali nelle posizioni estratte": "test_ogni_mossa_e_legale_nella_sua_posizione",
+    }
+    for etichetta, expr in criteri.items():
+        p = run_module("pytest", "-q", "--no-header", "tests/unit", "-k", expr)
+        if p.returncode == 5:
+            results.append(Result(etichetta, "FAIL", f"nessun test corrisponde a '{expr}'"))
+        else:
+            results.append(
+                Result(
+                    etichetta,
+                    "PASS" if p.returncode == 0 else "FAIL",
+                    "" if p.returncode == 0 else p.stdout.strip()[-500:],
+                )
+            )
+
+    results.append(_check_built_dataset())
+    return results
+
+
+def _check_built_dataset() -> Result:
+    """Verifica il dataset costruito, se esiste."""
+    processed = ROOT / "data" / "processed"
+    manifest = processed / "manifest.json"
+    if not manifest.exists():
+        return Result(
+            "dataset costruito e verificato",
+            "SKIP",
+            "nessun dataset — eseguire: python scripts/build_dataset.py --input <dump>",
+        )
+
+    p = run([project_python(), "scripts/verify_dataset.py", "--data", str(processed)])
+    detail = ""
+    for line in (p.stdout or "").splitlines():
+        if "totale:" in line:
+            detail = line.strip()
+    return Result(
+        "dataset costruito e verificato",
+        "PASS" if p.returncode == 0 else "FAIL",
+        detail or (p.stdout or p.stderr).strip()[-400:],
+    )
+
+
 def _stage_placeholder(stage: str, module: str, tests_dir: str) -> list[Result]:
     """Gate delle fasi successive: SKIP finche il codice non esiste."""
     mod_path = SRC / "chessbot" / module
@@ -538,7 +608,7 @@ STAGES = {
     ],
     "encoding": check_encoding_gate,
     "baseline": check_baseline_gate,
-    "data": lambda: _stage_placeholder("data", "data", "integration"),
+    "data": check_data_gate,
     "train": lambda: _stage_placeholder("train", "training", "integration"),
     "mcts": lambda: _stage_placeholder("mcts", "search", "integration"),
     "rl-entry": lambda: _stage_placeholder("rl-entry", "training", "integration"),
