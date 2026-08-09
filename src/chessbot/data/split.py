@@ -53,6 +53,24 @@ class SplitConfig:
             raise ValueError("ogni split deve avere una proporzione positiva")
 
 
+def position_key(fen: str) -> str:
+    """Chiave di identita di una posizione: pezzi, tratto, arrocco, en passant.
+
+    **Non** la FEN completa. Gli ultimi due campi sono l'halfmove clock e il numero di
+    mossa: due posizioni identiche raggiunte per strade diverse hanno contatori diversi e
+    FEN diverse, ma per la rete sono **la stessa posizione**.
+
+    Deduplicare sulla FEN completa lascerebbe quindi passare del leakage: misurato sul
+    dataset 2026-07, 109 posizioni comparivano sia in train sia in val proprio per questo
+    — stessi pezzi, stesso tratto, halfmove clock diverso. Erano quasi tutte aperture,
+    dove la stessa posizione si raggiunge con trasposizioni diverse.
+
+    Il capping usa la stessa chiave, per lo stesso motivo: contare separatamente due
+    varianti della stessa apertura vanificherebbe il limite.
+    """
+    return " ".join(fen.split()[:4])
+
+
 def assign_split(game_id: str, config: SplitConfig) -> str:
     """Assegna una PARTITA a uno split, in modo deterministico e stabile.
 
@@ -149,24 +167,25 @@ def split_samples(
 
     for sample in samples:
         split = assign_split(sample.game_id, config)
+        key = position_key(sample.fen)
 
         if config.dedup_fen_across_splits:
-            seen_in = fen_to_split.get(sample.fen)
+            seen_in = fen_to_split.get(key)
             if seen_in is None:
-                fen_to_split[sample.fen] = split
+                fen_to_split[key] = split
             elif seen_in != split:
                 stats.dropped_dedup += 1
                 continue
 
-        fen_counts[sample.fen] += 1
-        if fen_counts[sample.fen] > config.max_occurrences_per_fen:
+        fen_counts[key] += 1
+        if fen_counts[key] > config.max_occurrences_per_fen:
             stats.dropped_capping += 1
             continue
 
         stats.per_split[split] += 1
         stats.games_per_split[split].add(sample.game_id)
         stats.results[sample.wdl] += 1
-        stats.fen_counter[sample.fen] += 1
+        stats.fen_counter[key] += 1
         if sample.eval_cp is not None:
             stats.with_eval += 1
 

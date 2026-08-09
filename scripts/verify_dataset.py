@@ -36,7 +36,7 @@ if hasattr(sys.stdout, "reconfigure"):
 
 import chess  # noqa: E402
 
-from chessbot.data import SPLITS, iter_shard_boards, read_shard  # noqa: E402
+from chessbot.data import SPLITS, iter_shard_boards, position_key, read_shard  # noqa: E402
 from chessbot.encoding import decode_move  # noqa: E402
 
 _COLOR = sys.stdout.isatty()
@@ -116,7 +116,10 @@ def main() -> int:
             for board, move_index, _wdl, _eval in iter_shard_boards(array):
                 counts[split] += 1
                 if len(fens[split]) < args.max_fen_check:
-                    fens[split].add(board.board_fen() + " " + ("w" if board.turn else "b"))
+                    # Stessa chiave della deduplica: pezzi, tratto, arrocco, en passant.
+                    # I contatori non contano — due posizioni identiche con halfmove
+                    # clock diverso sono la stessa posizione per la rete.
+                    fens[split].add(position_key(board.fen()))
 
                 # Round-trip: la mossa decodificata deve essere legale nella posizione
                 # ricostruita. E il controllo che smaschera un packing sbagliato.

@@ -17,6 +17,7 @@ from chessbot.data.split import (
     TRAIN,
     SplitConfig,
     assign_split,
+    position_key,
     split_with_stats,
     verify_no_leakage,
 )
@@ -77,6 +78,33 @@ def test_zero_fen_condivise_fra_split():
     leaks = verify_no_leakage(assigned)
     assert leaks["fen_condivise"] == 0, f"FEN condivise fra split: {leaks}"
     assert stats.dropped_dedup > 0, "la deduplica non ha scartato nulla, sospetto"
+
+
+def test_dedup_ignora_i_contatori_della_fen():
+    """Due FEN che differiscono solo per halfmove clock sono la STESSA posizione.
+
+    Regressione di un leakage reale: sul dataset 2026-07 la deduplica confrontava le FEN
+    complete, e 109 posizioni comparivano sia in train sia in val — stessi pezzi, stesso
+    tratto, contatori diversi. Per la rete erano identiche.
+    """
+    base = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -"
+    assert position_key(f"{base} 0 1") == position_key(f"{base} 12 34")
+
+    # Due partite che finiscono in split diversi, sulla stessa posizione con clock
+    # diverso: la seconda deve essere scartata dalla deduplica.
+    samples = [
+        Sample(game_id=f"g{i:05d}", fen=f"{base} {i} {i + 1}", move_uci="e2e4", wdl=WDL_DRAW, ply=0)
+        for i in range(500)
+    ]
+    assigned, stats = split_with_stats(samples)
+    leaks = verify_no_leakage(
+        [
+            (sp, Sample(s.game_id, position_key(s.fen), s.move_uci, s.wdl, s.ply))
+            for sp, s in assigned
+        ]
+    )
+    assert leaks["fen_condivise"] == 0
+    assert stats.dropped_dedup > 0
 
 
 def test_lo_split_per_posizione_verrebbe_intercettato():

@@ -92,6 +92,64 @@ Costo: il tempo per partita passa da 20.6 s a 35.7 s (~1.7x), atteso e accettato
 |---|---|---|---|---|---|
 | — | Stockfish UCI_Elo=1400 | — | — | — | — |
 
+## Pipeline dati (Stadio 3)
+
+### 2026-08-09 — Dataset da lichess_db_standard_rated_2026-07
+- Commit: `44d144b`
+- Comando: `python scripts/build_dataset.py --input data/raw/lichess_db_standard_rated_2026-07.pgn.zst --target-positions 20000000`
+- Manifest: `data/processed/manifest.json`
+
+| | |
+|---|---|
+| Partite lette | 26.951.110 |
+| Partite tenute | **273.759 (1,02%)** |
+| Posizioni | **20.000.000** (~73 per partita) |
+| Dimensione su disco | **2,0 GB** (105 byte/posizione) |
+| Tempo | 114 min (2.929 posizioni/s) |
+| Con `[%eval]` | 6.638.931 (33,2%) |
+
+**Split (per PARTITA — criticita #3):**
+
+| Split | Posizioni | % | Partite | Shard |
+|---|---|---|---|---|
+| train | 19.109.308 | 95,55% | 259.958 | 77 |
+| val | 450.765 | 2,25% | 6.899 | 2 |
+| test | 439.927 | 2,20% | 6.894 | 2 |
+
+**Distribuzione esiti:** vittorie bianco 45,4%, patte 11,6%, sconfitte bianco 43,0%.
+Sensata: il vantaggio del tratto c'e ma e piccolo, e la quota di patte e bassa perche il
+dataset e rapid/classical online, non tornei di elite.
+
+**Scarti dei filtri** (§2.1), in ordine di impatto:
+
+| Motivo | Partite |
+|---|---|
+| categoria blitz | 12.362.153 |
+| categoria bullet | 9.851.373 |
+| Elo medio < 2000 | 4.431.380 |
+| time control non parsabile | 25.594 |
+| meno di 10 mosse | 5.974 |
+| tempo scaduto in posizione non persa | 874 |
+
+Piu 871.547 posizioni scartate dal capping aperture e 326.241 dalla deduplica fra split.
+
+- Note: la resa dell'1,02% e bassa ma corretta — il grosso del traffico Lichess e
+  bullet e blitz, che §2.1 esclude perche rumorosi. Il capping funziona: le FEN piu
+  frequenti si fermano tutte esattamente a 3.000 occorrenze, il valore configurato.
+
+### 2026-08-09 — Prestazioni del parsing, prima e dopo
+- Misurato sul dump vero, non stimato.
+
+| | Posizioni/s | 5M posizioni |
+|---|---|---|
+| Prima (`read_game` su tutte) | 51 | 27 ore |
+| Dopo (filtro sugli header) | **4.590** | **~20 min** |
+
+Il fattore 90 viene dal non costruire l'albero delle mosse per il 99% delle partite che
+i filtri scartano comunque. Dettagli in docs/JOURNAL.md.
+
+---
+
 ## Training supervisionato (Stadio 4)
 
 _Da compilare dopo il Gate 4._

@@ -158,3 +158,53 @@ diventato rosso, poi ripristinato.
    Nessun test unitario aveva colto il problema: le tattiche elementari passavano tutte,
    perche su una posizione con una cattura ovvia la prima mossa esaminata e gia la
    migliore e la finestra non fa danni. Solo giocare partite intere lo ha rivelato.
+
+---
+
+### 2026-08-09 — Stadio 3: il parsing era 90 volte piu lento del necessario
+
+**Come e emerso.** Prima di lanciare la conversione ho misurato la velocita su un
+campione del dump vero: 51 posizioni/s. Fatto il conto: **27 ore per 5 milioni di
+posizioni**. Non un numero da scoprire il giorno dopo guardando un run ancora in corso.
+
+**La causa.** `chess.pgn.read_game` costruisce l'albero completo delle mosse di ogni
+partita. Ma i filtri di §2.1 scartano il **99% delle partite** (misurato: 1,02% tenute
+sul 2026-07), e lo scarto avviene guardando i soli header. Si stava quindi parsando la
+notazione di 26 milioni di partite per buttarne via 26,7 milioni.
+
+**Il profiling** (regola #4 — niente ottimizzazione senza misura):
+
+| | Partite/s |
+|---|---|
+| sola lettura righe | 22.842 |
+| `read_headers` + salto manuale | 1.661 |
+| visitor con `SKIP` | 1.702 |
+| `read_game` completo | **94** |
+
+**Il fix.** `_FilteringVisitor` applica i filtri in `end_headers` e restituisce
+`chess.pgn.SKIP` quando la partita non passa: il parser salta il corpo senza costruirlo.
+Da 51 a **4.590 posizioni/s** end-to-end, fattore 90. La conversione di 20M posizioni e
+durata 114 minuti invece delle ~5 ore che sarebbero servite.
+
+**La strada sbagliata, che sembrava la piu ovvia.** Il primo tentativo era
+`read_headers` per filtrare, poi saltare a mano il corpo delle partite scartate. Non
+funziona, e per un motivo non documentato in modo evidente: **`read_headers` consuma gia
+il corpo** e si ferma sull'`[Event` successivo. Lo stream non e posizionato sulle mosse,
+quindi non c'e nulla da saltare — e ogni tentativo di "saltare" mangia la partita dopo.
+Sintomo: 3 partite lette invece di 5.
+
+Ci ho provato due volte, con due implementazioni diverse dello stesso salto manuale,
+prima di verificare cosa lasciasse davvero nello stream. **Verificare l'assunzione
+costava una riga** (`read_headers` poi `readline`), e l'ho fatto solo dopo il secondo
+fallimento.
+
+I test su PGN sintetici hanno intercettato entrambi i tentativi rotti prima che
+toccassero il dump vero. Sono cinque partite scritte a mano in un file: hanno appena
+ripagato il tempo di scriverle.
+
+**Nota sul dimensionamento.** Ho lanciato la conversione completa e l'ho fermata dopo
+tre minuti: la proiezione dava 47-78M posizioni in 3,6-6 ore. Il piano dice
+esplicitamente che oltre i 15-20M non serve — una rete da 3,5M parametri satura prima.
+Rilanciata con `--target-positions 20000000`. **Fermare un run che sta funzionando** e
+controintuitivo, ma tre minuti di proiezione hanno risparmiato quattro ore di calcolo
+per dati che non sarebbero stati usati.

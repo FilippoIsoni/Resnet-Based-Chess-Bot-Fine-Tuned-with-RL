@@ -128,3 +128,25 @@ casuale (14W-9L-77D su 100).
 **Verificato:** `test_le_mosse_pari_merito_sono_davvero_equivalenti` fallisce se il bug
 viene reintrodotto (provato).
 **Reversibilita:** alta, una riga.
+
+### 2026-08-09 — Deduplica sulla posizione, non sulla FEN completa
+**Contesto:** verificando il primo dataset da 20M posizioni ho trovato ~0.17% di
+posizioni presenti in due split diversi. La deduplica confrontava le FEN complete, che
+includono halfmove clock e numero di mossa: la stessa posizione raggiunta per
+trasposizioni diverse ha contatori diversi, quindi FEN diverse, e passava il controllo.
+**Scelta:** deduplica e capping usano `position_key()` — pezzi, tratto, arrocco, en
+passant. I due campi contatore sono esclusi.
+**Motivo:** per la rete due posizioni con gli stessi pezzi e lo stesso tratto sono la
+stessa cosa: l'encoder codifica l'halfmove clock come piano, ma la posizione che la
+policy deve valutare e identica. Tenerle in split diversi e leakage, punto.
+**Alternative scartate:**
+- Lasciare la FEN completa e accettare lo 0.17% — e piccolo, ma la criticita #3 esiste
+  proprio perche il leakage non si vede: si manifesta come validation accuracy
+  ottimistica, cioe come la metrica su cui si prenderanno tutte le decisioni dello
+  Stadio 4. Un criterio del gate dice 0, non "quasi 0".
+- Includere anche il conteggio ripetizioni nella chiave — non e nella FEN e andrebbe
+  ricalcolato; l'effetto sul leakage sarebbe nullo.
+**Conseguenza:** il dataset e stato rigenerato da zero (~2h). Le posizioni scartate per
+deduplica passano da 326k a un valore piu alto: e il punto.
+**Reversibilita:** alta, una funzione di quattro righe — ma cambiarla invalida il
+dataset, che va rigenerato.
