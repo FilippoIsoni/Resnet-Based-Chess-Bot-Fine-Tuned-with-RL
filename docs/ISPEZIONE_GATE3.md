@@ -238,6 +238,12 @@ r4rk1/p1p4p/1p2p1q1/4Pp2/4b1p1/PQB1P3/1P3PPP/3R1RK1 w - - 2 1
 |---|---|---|---|---|
 | nero | g2f2 | Kf2 | bianco vince | 8115 |
 
+> **Trappola di lettura, gia segnalata come sospetto bug.** In g2 c'e `k` **minuscolo**:
+> nella notazione FEN le minuscole sono i pezzi **neri**, quindi e il re nero. Il re
+> bianco e in a7 (`K` maiuscolo) e la donna bianca in g8 (`Q`). Il tratto dice nero, il
+> re nero fugge da g2 a f2, e legale — le sue uniche mosse sono `g2f3, g2h2, g2f2, g2h1,
+> g2f1`. Nessun disallineamento.
+
 ---
 
 ## Esito dell'ispezione
@@ -247,10 +253,24 @@ _Da compilare dopo aver guardato i campioni._
 - [ ] Le mosse sono sensate, non solo legali
 - [ ] Il tratto nella FEN corrisponde al colore che muove
 - [ ] Gli esiti sono misti
-- [ ] Il campione 15 e davvero matto
+- [ ] Il campione 15 porta effettivamente a matto forzato
 - [ ] Il campione 3 e un'apertura riconoscibile
 
 **Verificato da:** ______  **Data:** ______
+
+> La voce sul campione 15 era formulata come "e davvero matto", che e sbagliato: una
+> posizione gia in scacco matto non ha mosse legali e **non puo esistere come campione di
+> training**. Se ce ne fosse una, sarebbe quello il bug. Il campione 15 e una posizione
+> in cui esiste una mossa che DA matto — cosa diversa e legittima.
+
+> **L'allineamento posizione-mossa non si verifica piu a occhio.** E automatico e vive in
+> [`scripts/verify_alignment.py`](../scripts/verify_alignment.py), che classifica tutti i
+> 20M campioni in `ok` / `ok_mirror` / `ok_next_ply` / `ok_prev_ply` / `illegal` e
+> restituisce un verdetto quantitativo con exit code usabile in CI.
+>
+> Questa ispezione manuale resta per giudicare se le mosse sono **sensate**, non se sono
+> **corrette**: una rete converge anche su etichette rumorose, e nessuno script sa dire
+> se una mossa legale e anche una mossa che un giocatore forte giocherebbe.
 
 ## Rigenerare con altri campioni
 

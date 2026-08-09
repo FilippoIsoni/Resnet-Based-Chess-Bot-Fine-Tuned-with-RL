@@ -539,7 +539,41 @@ def check_data_gate() -> list[Result]:
             )
 
     results.append(_check_built_dataset())
+    results.append(_check_alignment())
     return results
+
+
+def _check_alignment() -> Result:
+    """Allineamento posizione <-> mossa sul dataset costruito.
+
+    Su un campione: la scansione completa dei 20M dura 18 minuti, troppo per un gate che
+    si lancia spesso. Il risultato completo e in docs/RESULTS.md e si riproduce con
+    `python scripts/verify_alignment.py --data data/processed`.
+    """
+    processed = ROOT / "data" / "processed"
+    if not (processed / "manifest.json").exists():
+        return Result("allineamento posizione-mossa", "SKIP", "nessun dataset costruito")
+
+    p = run(
+        [
+            project_python(),
+            "scripts/verify_alignment.py",
+            "--data",
+            str(processed),
+            "--limit",
+            "50000",
+        ]
+    )
+    detail = ""
+    for line in (p.stdout or "").splitlines():
+        if line.strip().startswith("ok "):
+            detail = " ".join(line.split())
+            break
+    return Result(
+        "allineamento posizione-mossa",
+        "PASS" if p.returncode == 0 else "FAIL",
+        detail + " (campione 50k per split)" if detail else (p.stdout or "")[-300:],
+    )
 
 
 def _check_built_dataset() -> Result:

@@ -110,8 +110,39 @@ Il round-trip e il controllo piu forte: ogni posizione e stata ricostruita dai b
 e ogni indice mossa decodificato, verificando che la mossa risultante fosse legale nella
 posizione ricostruita. Zero fallimenti su venti milioni.
 
+### 2026-08-09 — Allineamento posizione-mossa, scansione completa
+- Comando: `python scripts/verify_alignment.py --data data/processed`
+- Durata: 18,0 min, 18.565 campioni/s
+
+| Categoria | Campioni | % |
+|---|---|---|
+| **ok** | **20.000.000** | **100,0000%** |
+| ok_mirror | 0 | 0,0000% |
+| ok_next_ply | 0 | 0,0000% |
+| ok_prev_ply | 0 | 0,0000% |
+| illegal | 0 | 0,0000% |
+| tratto errato | 0 | — |
+
+Per split: train 19.117.346, val 447.011, test 435.643 — tutti al 100% `ok`.
+
+**Diagnosi: dataset allineato.** Nessun off-by-one, nessun problema di specchiatura,
+nessun caso speciale (arrocco, en passant, promozione) gestito male.
+
+Il test classifica ogni campione anche in caso di fallimento, cosi un disallineamento
+direbbe pure di che tipo e. Il classificatore e verificato su casi costruiti a mano
+prima dell'uso (`tests/unit/test_verify_alignment.py`): se non distinguesse i tre casi
+noti — allineato, specchiato, sfasato di un ply — i suoi risultati non varrebbero nulla.
+
+**Sul sospetto che ha originato la verifica.** Il campione 20 di
+[ISPEZIONE_GATE3.md](ISPEZIONE_GATE3.md) sembrava avere il re bianco in g2 con il nero al
+tratto. In realta in g2 c'e `k` minuscolo, cioe il re **nero**: nella FEN le minuscole
+sono i pezzi neri. Il re bianco e in a7. Nessun bug — ma la verifica automatica ora
+esiste e copre tutto il dataset, che e comunque un guadagno netto sull'ispezione a occhio.
+
 **Resta l'ispezione manuale** (criterio non automatizzabile del Gate 3): 20 campioni in
-[ISPEZIONE_GATE3.md](ISPEZIONE_GATE3.md), da guardare con gli occhi.
+[ISPEZIONE_GATE3.md](ISPEZIONE_GATE3.md), da guardare con gli occhi. Ora serve solo a
+giudicare se le mosse sono *sensate*, non se sono *corrette*: la correttezza e coperta
+dallo script.
 
 
 
