@@ -540,7 +540,53 @@ def check_data_gate() -> list[Result]:
 
     results.append(_check_built_dataset())
     results.append(_check_alignment())
+    results.append(_check_move_quality())
     return results
+
+
+def _check_move_quality() -> Result:
+    """Le mosse del dataset sono sensate, non solo legali.
+
+    Copre il rischio che `_check_alignment` non vede: un preprocessing che associa alle
+    posizioni una mossa sbagliata ma legale darebbe 100% di allineamento e produrrebbe
+    etichette di puro rumore. Qui si confronta con Stockfish.
+    """
+    processed = ROOT / "data" / "processed"
+    if not (processed / "manifest.json").exists():
+        return Result("mosse sensate (vs Stockfish)", "SKIP", "nessun dataset costruito")
+
+    engine = ROOT / "tools" / "stockfish" / "stockfish.exe"
+    if not engine.exists():
+        return Result(
+            "mosse sensate (vs Stockfish)",
+            "SKIP",
+            "Stockfish assente in tools/stockfish/ — vedi docs/RESULTS.md per l'ultima misura",
+        )
+
+    # Campione piccolo: il gate deve restare veloce. La misura di riferimento e su 400
+    # posizioni ed e registrata in docs/RESULTS.md.
+    p = run(
+        [
+            project_python(),
+            "scripts/verify_move_quality.py",
+            "--data",
+            str(processed),
+            "--samples",
+            "60",
+            "--depth",
+            "8",
+        ]
+    )
+    detail = ""
+    for line in (p.stdout or "").splitlines():
+        if "top-1 Stockfish" in line:
+            detail = " ".join(line.split())
+            break
+    return Result(
+        "mosse sensate (vs Stockfish)",
+        "PASS" if p.returncode == 0 else "FAIL",
+        detail or (p.stdout or "")[-300:],
+    )
 
 
 def _check_alignment() -> Result:

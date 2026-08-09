@@ -139,10 +139,32 @@ tratto. In realta in g2 c'e `k` minuscolo, cioe il re **nero**: nella FEN le min
 sono i pezzi neri. Il re bianco e in a7. Nessun bug — ma la verifica automatica ora
 esiste e copre tutto il dataset, che e comunque un guadagno netto sull'ispezione a occhio.
 
-**Resta l'ispezione manuale** (criterio non automatizzabile del Gate 3): 20 campioni in
-[ISPEZIONE_GATE3.md](ISPEZIONE_GATE3.md), da guardare con gli occhi. Ora serve solo a
-giudicare se le mosse sono *sensate*, non se sono *corrette*: la correttezza e coperta
-dallo script.
+### 2026-08-09 — Qualita delle mosse: confronto con Stockfish
+- Comando: `python scripts/verify_move_quality.py --samples 400 --depth 12`
+- Setup: 400 posizioni dallo split val, Stockfish 18 a profondita 12, multipv 3
+- Confronto **appaiato**: sulle stesse posizioni si valuta la mossa del dataset e una
+  mossa legale a caso. Un numero assoluto non direbbe nulla; il rapporto si.
+
+| Metrica | Dataset | Casuale | Rapporto |
+|---|---|---|---|
+| top-1 Stockfish | **38,8%** | 4,5% | **8,6x** |
+| top-3 Stockfish | **71,0%** | 11,0% | 6,5x |
+| perdita media | **105 cp** | 489 cp | 4,7x meglio |
+| perdita mediana | **6 cp** | 237 cp | 39x meglio |
+| errori gravi (>300 cp) | **2,0%** | 43,2% | 22x meglio |
+
+**Verdetto: le mosse sono sensate.** La perdita mediana di 6 centipedoni — meno di un
+sedicesimo di pedone — dice che nella meta dei casi la mossa giocata e quella migliore o
+equivalente. Sono mosse di giocatori a 2000+ Elo, non etichette rumorose.
+
+Questo chiude il criterio che il piano affidava all'ispezione a occhio. Copre un rischio
+che `verify_alignment.py` non puo vedere: un preprocessing che associ alle posizioni una
+mossa **sbagliata ma legale** darebbe 100% di allineamento e produrrebbe puro rumore. Qui
+si distinguerebbe subito, perche il dataset assomiglierebbe al baseline casuale.
+
+**Resta l'ispezione manuale** dei 20 campioni in
+[ISPEZIONE_GATE3.md](ISPEZIONE_GATE3.md), ora facoltativa: sia la correttezza sia la
+qualita sono coperte da misure automatiche su campioni molto piu grandi di venti.
 
 
 

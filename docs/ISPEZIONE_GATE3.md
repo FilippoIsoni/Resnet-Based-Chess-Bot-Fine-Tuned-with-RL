@@ -263,14 +263,20 @@ _Da compilare dopo aver guardato i campioni._
 > training**. Se ce ne fosse una, sarebbe quello il bug. Il campione 15 e una posizione
 > in cui esiste una mossa che DA matto — cosa diversa e legittima.
 
-> **L'allineamento posizione-mossa non si verifica piu a occhio.** E automatico e vive in
-> [`scripts/verify_alignment.py`](../scripts/verify_alignment.py), che classifica tutti i
-> 20M campioni in `ok` / `ok_mirror` / `ok_next_ply` / `ok_prev_ply` / `illegal` e
-> restituisce un verdetto quantitativo con exit code usabile in CI.
+> **Questa ispezione e ora FACOLTATIVA.** Entrambi i criteri che richiedeva sono coperti
+> da misure automatiche su campioni molto piu grandi di venti:
 >
-> Questa ispezione manuale resta per giudicare se le mosse sono **sensate**, non se sono
-> **corrette**: una rete converge anche su etichette rumorose, e nessuno script sa dire
-> se una mossa legale e anche una mossa che un giocatore forte giocherebbe.
+> | Cosa | Come | Risultato |
+> |---|---|---|
+> | le mosse sono **corrette** | [`verify_alignment.py`](../scripts/verify_alignment.py) | 100,0000% su 20.000.000 |
+> | le mosse sono **sensate** | [`verify_move_quality.py`](../scripts/verify_move_quality.py) | 8,6x meglio del caso su top-1 Stockfish |
+>
+> Il secondo copre il rischio che il primo non vede: un preprocessing che associ alle
+> posizioni una mossa *sbagliata ma legale* darebbe 100% di allineamento e produrrebbe
+> puro rumore. Confrontando con Stockfish si distinguerebbe subito.
+>
+> Guardare i campioni resta utile per farsi un'idea di com'e fatto il dataset, ma non e
+> piu il criterio che decide il Gate 3.
 
 ## Rigenerare con altri campioni
 
