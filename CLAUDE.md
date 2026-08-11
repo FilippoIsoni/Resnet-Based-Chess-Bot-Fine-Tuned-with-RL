@@ -12,6 +12,55 @@ Two docs are the source of truth and should be read before major changes:
 
 Also check `docs/DECISIONS.md`, `docs/JOURNAL.md`, `docs/RESULTS.md` for accumulated decisions/history, and `docs/CHECKLIST.md`.
 
+## Current state (2026-08-10)
+
+**Gates 1, 2 and 3 are green. Next stage is 4 (supervised training).**
+
+| Gate | Status | Headline result |
+|---|---|---|
+| 0 setup | green | — |
+| 0-bis macOS | **open** | assigned to the macOS collaborator; golden files must be bit-identical across both machines |
+| 1 encoding | green | 9 criteria; move round-trip on 1.78M legal moves, 0 failures |
+| 2 baseline | green | 5 criteria; **100W-0L-0D vs random** over 100 games (recorded in `runs/gate2/`) |
+| 3 data | green | 10 criteria; see dataset below |
+| 4 train | not started | — |
+
+**The dataset exists and is verified.** `data/processed/` holds **20,000,000 positions**
+(2.0 GB) from `lichess_db_standard_rated_2026-07.pgn.zst`, built at commit `669d452`:
+
+| Split | Positions | Shards |
+|---|---|---|
+| train | 19,117,346 | 77 |
+| val | 447,011 | 2 |
+| test | 435,643 | 2 |
+
+274,168 games kept out of 26,990,325 read (1.02% — the filters drop bullet/blitz and
+sub-2000 Elo). 33.2% of positions carry a Stockfish `[%eval]` label. Three independent
+verifications passed: round-trip on all 20M with 0 illegal moves, position↔move alignment
+**100.0000%**, and move quality **8.6× better than random** on Stockfish top-1.
+
+The dataset is **not in git** (2 GB) but is fully reproducible: `download_pgn.py` +
+`build_dataset.py` with the same seed produce it byte-for-byte, and `manifest.json`
+records the commit hash and config. `data/raw/` holds the 27 GB source dump.
+
+Stockfish 18 (AVX2 build) is installed at `tools/stockfish/stockfish.exe`, gitignored —
+macOS users need their own binary. It is required by `verify_move_quality.py` and by the
+Elo ladder from Stage 2 onward.
+
+What Stage 4 needs first: a DataLoader that expands the 105-byte packed rows into 19×8×8
+tensors on the fly (`encoding/board.py::encode_board` is written and gate-tested but not
+yet wired into the data path — nothing calls it outside the golden tests).
+
+**Gate timing caveat.** Some criteria are slow and the gate runner samples them so that
+`check.py --stage <name>` stays usable: Gate 3 reads 2 shards per split rather than all
+20M rows, and its Stockfish check uses 60 positions. Gate 2's `perft profondo e match
+brevi` runs baseline-vs-baseline games and takes **~10 minutes** on its own (verified:
+`pytest tests/integration -m slow` → 8 passed in 602s) — under a short shell timeout it
+gets killed mid-run and the gate reports FAIL for it. That FAIL is a timeout, not a
+regression. The full-coverage numbers are the ones recorded in `docs/RESULTS.md`;
+reproduce them by running the scripts directly without the sampling flags, allowing
+10–25 minutes each.
+
 ## Commands
 
 ### Setup (Python 3.11 required, venv at `.venv`)
