@@ -208,3 +208,85 @@ esplicitamente che oltre i 15-20M non serve — una rete da 3,5M parametri satur
 Rilanciata con `--target-positions 20000000`. **Fermare un run che sta funzionando** e
 controintuitivo, ma tre minuti di proiezione hanno risparmiato quattro ore di calcolo
 per dati che non sarebbero stati usati.
+
+---
+
+### 2026-08-13 — Stadio 4: tre bug nella loss, e la value head che non impara
+
+Il training e andato liscio: 12 epoche, 11,8 ore, top-1 al 52,11%. I problemi sono stati
+tutti **prima** di lanciarlo, ed e esattamente dove dovevano stare.
+
+**1. Il label smoothing spalmato sulle mosse illegali.**
+
+`F.cross_entropy(..., label_smoothing=0.05)` distribuisce la massa di smoothing su TUTTE
+le classi. Con 4672 mosse di cui ~30 legali, le altre 4642 sono a -1e9 per la
+mascheratura, e il conto e:
+
+    0.05 / 4672 * 4642 * 1e9 = 49.678.938
+
+La loss valeva **49.683.864** invece di 3,40 — che e `ln(30)`, il valore corretto per 30
+mosse equiprobabili.
+
+Il gradiente sui logit legali restava giusto, quindi **l'overfit test passava lo stesso
+al 100%**. Il bug non impediva alla rete di imparare: rendeva impossibile *accorgersi* se
+stava imparando. Il termine WDL, che vale ~0,9, sarebbe stato schiacciato di sette ordini
+di grandezza, e ogni soglia numerica del Gate 4 priva di senso.
+
+E il tipo di bug peggiore: passa i test, non crasha, e falsifica solo gli strumenti con
+cui lo cercheresti.
+
+**2. La sentinella -1e9 non entra in fp16.**
+
+Il massimo rappresentabile in mezza precisione e 65504. Con AMP attiva — il default sulla
+3050 — i logit arrivano alla mascheratura in fp16 e PyTorch solleva
+`RuntimeError: value cannot be converted to type c10::Half without overflow`. Crash al
+primo batch.
+
+I test unitari non lo vedevano perche girano tutti in fp32. **L'ha trovato lo smoke test**
+da 60 step, che costa un minuto e gira sul percorso vero. Ora la sentinella e
+`finfo(dtype).min / 2`, e i test sono parametrizzati sui tre dtype.
+
+**3. Lo stato RNG caricato su CUDA.**
+
+`torch.load(..., map_location="cuda")` sposta *tutti* i tensori sulla GPU, stato dei
+generatori compreso. Ma `set_rng_state` pretende un ByteTensor su CPU: `TypeError` alla
+ripresa, cioe **proprio quando il checkpoint serve**.
+
+Anche questo trovato provando la ripresa sul serio, non leggendo il codice.
+
+**La lezione comune ai tre.** I test unitari coprono la logica; lo smoke test copre
+l'integrazione con l'hardware vero (dtype, device, memoria). Due dei tre bug erano
+invisibili ai primi e ovvi al secondo. Sessanta step di training finto prima di undici
+ore di training vero sono il rapporto costi-benefici migliore di tutta la sessione.
+
+---
+
+### 2026-08-13 — La value head impara quasi nulla: numeri
+
+Il criterio del Gate 4 dice "loss del valore ~0.45" senza specificare quale delle due
+misure. Misurate entrambe, il numero che conta e un terzo:
+
+| | CE |
+|---|---|
+| Predire a caso | 1,0986 |
+| Predire sempre la distribuzione media del dataset | 0,9710 |
+| **La nostra rete** | **0,9038** |
+
+**0,067 nats di guadagno** su una strategia che ignora completamente la posizione. La
+rete e appena meglio di chi risponde sempre "45% vittoria, 12% patta, 43% sconfitta".
+
+Non e un bug: e la criticita #5 che si manifesta come previsto. L'esito della partita e
+un'etichetta rumorosa — la stessa posizione vinta compare come "vittoria" o "sconfitta"
+a seconda di cosa succede venti mosse dopo, e la rete non ha modo di distinguere.
+
+**Cosa aspettarsi allo Stadio 5.** L'MCTS usa la value head per valutare le foglie. Con
+una value head cosi debole, la ricerca rischia di essere guidata da rumore. Il piano
+prevede gia la diagnosi §4.4: se policy+MCTS a 400 simulazioni non guadagna almeno 150
+Elo sulla policy pura, servono le mitigazioni.
+
+Tre strade, in ordine di costo crescente, se la diagnosi va male:
+1. **pesare di piu l'eval Stockfish** nella loss — c'e sul 34% dei campioni ed e molto
+   meno rumoroso dell'esito
+2. **filtrare le posizioni finali** dal target WDL: nelle ultime dieci mosse l'esito e
+   quasi deterministico e la rete potrebbe impararlo li
+3. accettare che l'MCTS sia guidato prevalentemente dalla policy, che invece funziona

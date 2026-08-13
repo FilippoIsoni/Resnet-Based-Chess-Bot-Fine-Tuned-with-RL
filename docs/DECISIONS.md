@@ -150,3 +150,42 @@ policy deve valutare e identica. Tenerle in split diversi e leakage, punto.
 deduplica passano da 326k a un valore piu alto: e il punto.
 **Reversibilita:** alta, una funzione di quattro righe — ma cambiarla invalida il
 dataset, che va rigenerato.
+
+### 2026-08-13 — Rete a 12M parametri invece dei ~3,5M stimati dal piano
+**Contesto:** §3.1 descrive l'architettura e stima ~3,5M parametri. Implementandola
+esattamente come specificata ne vengono **12.029.715**. La stima non torna con
+l'architettura che il piano stesso descrive: il solo `Linear(32*8*8 -> 4672)` della
+policy head vale 9.568.256 pesi, e da solo supera il totale dichiarato.
+
+    stem              22.144   0,2%
+    8 blocchi      2.363.392  19,6%
+    policy head    9.577.088  79,6%   <- il Linear finale
+    value head        67.091   0,6%
+
+**Scelta:** tenere l'architettura come specificata, 12M parametri.
+**Motivo:** e quella scritta nel piano, e sta comodamente nei 6 GB della 3050 — il
+training completo ha usato meno di 2 GB di VRAM e ha girato a 5.600 posizioni/s. La
+stima sbagliata non ha conseguenze pratiche.
+**Alternativa nota, se un domani servisse comprimere:** la policy head "convoluzionale
+pura" di AlphaZero — Conv 1x1 da 128 a 73 canali, il cui output 73x8x8 = 4672 e gia lo
+spazio delle mosse, senza alcun Linear. Costerebbe 9.344 parametri invece di 9,57M,
+portando la rete a ~2,5M. Non e stata adottata perche non c'e un problema da risolvere:
+la memoria non e un vincolo e il tempo di training e accettabile.
+**Reversibilita:** media — cambiare la policy head invalida i checkpoint esistenti e
+richiede di riallenare.
+
+### 2026-08-13 — Label smoothing applicato solo alle mosse legali
+**Contesto:** `F.cross_entropy(label_smoothing=0.05)` distribuisce massa su tutte le 4672
+classi, comprese le ~4642 illegali portate a -1e9 dalla mascheratura. La loss valeva
+49.683.864 invece di 3,40.
+**Scelta:** `masked_cross_entropy()` in `training/loss.py`, che smootha sulla sola
+distribuzione legale.
+**Motivo:** il gradiente sui logit legali restava corretto anche col bug — la rete
+imparava lo stesso — ma la loss era illeggibile e schiacciava il termine WDL di sette
+ordini di grandezza, rendendo prive di senso tutte le soglie numeriche del Gate 4.
+**Alternative scartate:**
+- Togliere il label smoothing — e nel piano (§3.3) e serve: la mossa giocata da un umano
+  non e l'unica ragionevole, e pretendere probabilita 1 su quella e un target sbagliato.
+- Mascherare dopo la loss invece che prima — cambierebbe la distribuzione su cui la rete
+  e ottimizzata rispetto a quella usata in inferenza (criticita #12).
+**Reversibilita:** alta, una funzione isolata.

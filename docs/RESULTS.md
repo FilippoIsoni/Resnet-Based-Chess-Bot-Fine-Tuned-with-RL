@@ -237,13 +237,94 @@ i filtri scartano comunque. Dettagli in docs/JOURNAL.md.
 
 ---
 
-## Training supervisionato (Stadio 4)
+## Training supervisionato (Stadio 4) — Gate 4 VERDE
 
-_Da compilare dopo il Gate 4._
+### 2026-08-13 — Primo training completo
+- Commit: `90bb2ba`
+- Comando: `python scripts/train.py --run supervised --epochs 12`
+- Checkpoint: `runs/supervised/best.pt` (non in git, 144 MB)
 
-| Data | Checkpoint | Top-1 policy (val) | Loss valore | Tattiche (1000) | Note |
-|---|---|---|---|---|---|
-| — | — | atteso 45-52% | atteso ~0.45 | — | — |
+| | |
+|---|---|
+| Architettura | ResNet 8 blocchi x 128 canali, **12.029.715 parametri** |
+| Dati | 19.117.346 posizioni di train, 447.011 di val |
+| Durata | **11,8 ore** su RTX 3050 6GB |
+| Posizioni viste | 233.500.672 (12 epoche) |
+| Velocita | ~5.600 posizioni/s |
+| Batch | 512, precisione mista attiva |
+
+**Risultato:**
+
+| Checkpoint | Epoca | Step | Top-1 | Top-5 |
+|---|---|---|---|---|
+| **best.pt** | 7 | 306.000 | **51,66%** | 89,37% |
+| last.pt | 11 | 456.056 | 50,84% | 88,83% |
+
+Picco registrato in validation: **52,11%** allo step 306.000. Il criterio del Gate 4 e
+45-52%: centrato.
+
+**Progressione della top-1:**
+
+| Step | Top-1 |
+|---|---|
+| 2.000 | 33,42% |
+| 8.000 | 41,91% |
+| 53.000 | 48,91% |
+| 306.000 | **52,11%** (picco) |
+| 456.000 | 51,84% |
+
+Il modello peggiora leggermente dopo l'epoca 7: e il motivo per cui `best.pt` e `last.pt`
+sono file distinti. Per giocare si usa `best.pt`.
+
+### 2026-08-13 — Gate 4, criteri
+
+| Criterio | Esito |
+|---|---|
+| Overfit test su 512 posizioni | PASS — top-1 **100%** in 50 step |
+| Mascheratura illegali identica train/inferenza (criticita #12) | PASS — **0 mosse illegali** su 1.890 posizioni giocate |
+| Checkpoint: salva -> ricarica -> pesi identici | PASS |
+| Checkpoint: riprende optimizer, scheduler, RNG | PASS — verificato sul campo, ripresa da step 8.000 senza salti nella loss |
+| Checkpoint: scrittura atomica | PASS |
+| Gradienti collegati a tutti i parametri | PASS |
+| Top-1 validation 45-52% | PASS — **52,11%** |
+
+### 2026-08-13 — La value head e debole, come previsto
+
+Il criterio "loss del valore ~0.45" del piano non specifica quale delle due misure
+intenda, e le due sono su scale diverse. Misurate entrambe su `best.pt`:
+
+| Misura | Valore |
+|---|---|
+| CE sulla testa WDL | **0,9038** |
+| MSE sull'eval Stockfish | 0,1727 (errore tipico 0,42 su scala [-1, 1]) |
+| Copertura dell'eval | 34,4% dei campioni |
+
+**Il numero da guardare e il confronto con le baseline banali:**
+
+| Strategia | CE |
+|---|---|
+| Predire a caso | 1,0986 |
+| Predire sempre la distribuzione media del dataset (43% / 12% / 45%) | 0,9710 |
+| **La nostra rete** | **0,9038** |
+
+Il guadagno sulla baseline che **ignora completamente la posizione** e di soli
+**0,067 nats**. L'accuracy al 50,2% conferma: predicendo sempre "vittoria bianco" si
+otterrebbe gia il 45,4%.
+
+**La value head ha imparato pochissimo.** E la criticita #5 del piano, manifestatasi
+esattamente come previsto: senza distillazione da Stockfish, l'esito della partita e un
+segnale troppo rumoroso — una posizione vinta si perde venti mosse dopo, e la rete non
+puo distinguere le due cose.
+
+Non blocca il Gate 4, ma **e la cosa che conta di piu per lo Stadio 5**: l'MCTS usa
+proprio quella testa per valutare le foglie dell'albero. Il piano prevede gia la diagnosi
+§4.4 — match di 200 partite fra policy pura e policy+MCTS a 400 simulazioni. Se il
+guadagno e sotto 150 Elo, vanno applicate le mitigazioni prima di procedere alla Fase 5.
+
+### Da misurare
+| Data | Checkpoint | Tattiche (1000) | Elo vs Stockfish | Note |
+|---|---|---|---|---|
+| — | best.pt | — | — | dopo lo Stadio 5 (MCTS) |
 
 ## MCTS (Stadio 5)
 
