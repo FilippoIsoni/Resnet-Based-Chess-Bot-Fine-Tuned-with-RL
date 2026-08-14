@@ -742,6 +742,86 @@ def _check_trained_model() -> Result:
     return Result("top-1 validation 45-52%", "PASS" if top1 >= 0.45 else "FAIL", detail)
 
 
+def check_mcts_gate() -> list[Result]:
+    """Gate 5 — MCTS (§4.5, batteria del piano).
+
+    I criteri sulla MECCANICA girano sempre (test unitari con reti finte). Quelli che
+    richiedono partite vere stanno in `scripts/run_gate5_tests.py` e nella diagnosi
+    §4.4: costano decine di minuti e si lanciano a parte.
+    """
+    mod = SRC / "chessbot" / "search"
+    if not any(p.name != "__init__.py" for p in mod.glob("*.py")):
+        return [Result("gate mcts", "SKIP", "src/chessbot/search/ non ancora implementato")]
+
+    results: list[Result] = []
+
+    criteri = {
+        "backup: il valore si nega ad ogni livello (criticita #2)": (
+            "test_il_backup_nega_il_valore_ad_ogni_livello"
+        ),
+        "PUCT: nega il valore del figlio": "test_puct_nega_il_valore_del_figlio",
+        "matti in 1 con rete cieca": "test_trova_il_matto_in_1_con_rete_cieca",
+        "il batching non acceca la ricerca": (
+            "test_il_batching_non_impedisce_di_vedere_i_terminali"
+        ),
+        "il batching raggruppa davvero": "test_il_batching_raggruppa_davvero",
+        "virtual loss: penalizza invece di premiare": (
+            "test_il_virtual_loss_rende_il_ramo_meno_attraente or "
+            "test_il_virtual_loss_sposta_davvero_la_selezione"
+        ),
+        "riconoscimento delle posizioni terminali": "test_terminale_matto or test_terminale_stallo",
+        "target della policy per la Fase 5": "test_policy_target_somma_a_uno",
+    }
+    for etichetta, expr in criteri.items():
+        p = run_module("pytest", "-q", "--no-header", "tests/unit", "-k", expr)
+        if p.returncode == 5:
+            results.append(Result(etichetta, "FAIL", f"nessun test corrisponde a '{expr}'"))
+        else:
+            results.append(
+                Result(
+                    etichetta,
+                    "PASS" if p.returncode == 0 else "FAIL",
+                    "" if p.returncode == 0 else p.stdout.strip()[-500:],
+                )
+            )
+
+    results.append(_check_diagnosi_44())
+    return results
+
+
+def _check_diagnosi_44() -> Result:
+    """La diagnosi §4.4: l'MCTS guadagna almeno 150 Elo sulla policy pura?
+
+    Legge il risultato registrato in `runs/gate5/`: il match costa ore e non si rifa ad
+    ogni invocazione del gate.
+    """
+    import json
+
+    runs = ROOT / "runs" / "gate5"
+    files = sorted(runs.glob("diagnosi_44_*.json")) if runs.exists() else []
+    if not files:
+        return Result(
+            "diagnosi §4.4 (MCTS vs policy pura)",
+            "SKIP",
+            "nessuna diagnosi registrata — eseguire: python scripts/run_diagnosi_44.py",
+        )
+
+    try:
+        data = json.loads(files[-1].read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        return Result("diagnosi §4.4 (MCTS vs policy pura)", "FAIL", f"{files[-1].name}: {e}")
+
+    games = data.get("games", 0)
+    detail = f"{data.get('summary', '')} [{data.get('diagnosi')}]"
+    if games < 200:
+        detail += f" — solo {games} partite, §4.4 ne prevede 200"
+    return Result(
+        "diagnosi §4.4 (MCTS vs policy pura)",
+        "PASS" if data.get("diagnosi") == "ok" else "FAIL",
+        detail,
+    )
+
+
 def _stage_placeholder(stage: str, module: str, tests_dir: str) -> list[Result]:
     """Gate delle fasi successive: SKIP finche il codice non esiste."""
     mod_path = SRC / "chessbot" / module
@@ -787,7 +867,7 @@ STAGES = {
     "baseline": check_baseline_gate,
     "data": check_data_gate,
     "train": check_train_gate,
-    "mcts": lambda: _stage_placeholder("mcts", "search", "integration"),
+    "mcts": check_mcts_gate,
     "rl-entry": lambda: _stage_placeholder("rl-entry", "training", "integration"),
 }
 
