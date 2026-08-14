@@ -40,7 +40,7 @@ import chess
 import numpy as np
 import torch
 
-from chessbot.encoding import encode_board, legal_move_mask
+from chessbot.encoding import N_MOVES, encode_board
 from chessbot.model.network import masked_policy_logits
 from chessbot.search.node import (
     Node,
@@ -145,8 +145,19 @@ class Evaluator:
         if not boards:
             return []
 
+        from chessbot.encoding import encode_move
+
+        # Le mosse legali e i loro indici si calcolano una volta sola: servono sia per
+        # la maschera sia per estrarre i priori, e `encode_move` non e gratis.
+        legal_moves = [list(b.legal_moves) for b in boards]
+        indices = [
+            [encode_move(b, m) for m in moves] for b, moves in zip(boards, legal_moves, strict=True)
+        ]
+
         planes = np.stack([encode_board(b, repetitions=0) for b in boards])
-        masks = np.stack([legal_move_mask(b) for b in boards])
+        masks = np.zeros((len(boards), N_MOVES), dtype=bool)
+        for row, idx in enumerate(indices):
+            masks[row, idx] = True
 
         planes_t = torch.from_numpy(planes).to(self.device)
         masks_t = torch.from_numpy(masks).to(self.device)
@@ -155,31 +166,41 @@ class Evaluator:
 
         # Stessa mascheratura del training (criticita #12).
         masked = masked_policy_logits(policy_logits, masks_t)
-        probs = torch.softmax(masked.float(), dim=1).cpu().numpy()
+        probs = torch.softmax(masked.float(), dim=1)
+
+        # > **Si estraggono i priori sulla GPU, prima di scendere in CPU.**
+        # > Trasferire l'intera matrice (batch x 4672) costava il 26% del tempo totale di
+        # > self-play — misurato col profiler: 29,3 s su 113. Ma di quei 4672 valori ne
+        # > servono ~35 per posizione, quelli delle mosse legali: il 99,3% del traffico
+        # > sul bus PCIe era spazzatura.
+        # >
+        # > Con `gather` la selezione avviene sulla GPU e in CPU scendono solo i valori
+        # > utili. Il padding con l'indice 0 per le righe piu corte e innocuo: le colonne
+        # > in eccesso vengono ignorate leggendo solo `len(moves)` valori per riga.
+        max_legal = max((len(m) for m in legal_moves), default=1)
+        gather_idx = torch.zeros((len(boards), max_legal), dtype=torch.long, device=self.device)
+        for row, idx in enumerate(indices):
+            if idx:
+                gather_idx[row, : len(idx)] = torch.tensor(idx, device=self.device)
+
+        selected = probs.gather(1, gather_idx).cpu().numpy()
 
         # Dal WDL al valore scalare: P(vittoria) - P(sconfitta), in [-1, 1].
         wdl = torch.softmax(wdl_logits.float(), dim=1).cpu().numpy()
         values = wdl[:, 2] - wdl[:, 0]
 
         out: list[tuple[dict[chess.Move, float], float]] = []
-        for i, board in enumerate(boards):
-            priors: dict[chess.Move, float] = {}
-            for move in board.legal_moves:
-                from chessbot.encoding import encode_move
-
-                priors[move] = float(probs[i, encode_move(board, move)])
-            # Rinormalizza: la softmax e su 4672 indici, ma alcuni indici legali possono
-            # collidere in casi limite, e la somma sui soli legali puo non fare 1.
-            total = sum(priors.values())
+        for i, moves in enumerate(legal_moves):
+            values_row = selected[i, : len(moves)]
+            total = float(values_row.sum())
             if total > 0:
-                priors = {m: p / total for m, p in priors.items()}
+                priors = {m: float(p) / total for m, p in zip(moves, values_row, strict=True)}
             else:
-                uniform = 1.0 / max(len(priors), 1)
-                priors = dict.fromkeys(priors, uniform)
+                uniform = 1.0 / max(len(moves), 1)
+                priors = dict.fromkeys(moves, uniform)
 
-            # `values[i]` e dal pov del BIANCO se la board non fosse orientata, ma
-            # `encode_board` orienta sempre dal lato che muove: quindi e gia dal pov
-            # di chi deve muovere. Nessuna conversione.
+            # `encode_board` orienta sempre dal lato che muove, quindi il valore e gia
+            # dal punto di vista di chi deve muovere. Nessuna conversione.
             out.append((priors, float(values[i])))
         return out
 
