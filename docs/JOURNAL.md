@@ -290,3 +290,104 @@ Tre strade, in ordine di costo crescente, se la diagnosi va male:
 2. **filtrare le posizioni finali** dal target WDL: nelle ultime dieci mosse l'esito e
    quasi deterministico e la rete potrebbe impararlo li
 3. accettare che l'MCTS sia guidato prevalentemente dalla policy, che invece funziona
+
+---
+
+### 2026-08-14 — Stadio 5: due bug nel batching, entrambi di segno opposto al previsto
+
+L'MCTS in se e passato quasi subito: matti in 1 trovati 50/50 gia alla prima esecuzione,
+simmetria colori a posto, backup corretto. I due bug veri stavano tutti e due nella
+**ottimizzazione** — il batching delle foglie — e sono istruttivi perche entrambi
+rendevano peggiore cio che doveva migliorare.
+
+**1. Il batching rendeva la ricerca cieca.**
+
+Una foglia messa in coda per la valutazione resta **non espansa**. Il ciclo di selezione
+scende finche `node.is_expanded` e falso, quindi le simulazioni successive tornavano
+sulla stessa foglia e la rimettevano in coda: il batch si riempiva di N copie della
+stessa posizione invece di esplorare rami nuovi.
+
+Misurato su un matto in 1 con 39 mosse legali e 50 simulazioni:
+
+| `batch_size_leaves` | terminali trovati | mossa giocata |
+|---|---|---|
+| 1 | 43 | il matto |
+| 8 | **0** | una a caso |
+
+L'ottimizzazione che doveva rendere la ricerca sei volte piu veloce la stava rendendo
+incapace di vedere un matto in una mossa.
+
+**2. Il virtual loss era un premio, non una penalita.**
+
+Il primo fix — tenere un insieme dei nodi gia in coda — ha risolto la cecita ma ha
+ridotto il batch a una posizione: 199 collisioni su 200 simulazioni. Chiudevo il batch
+alla prima collisione invece di provare un'altra strada.
+
+Il secondo tentativo — aumentare il virtual loss e riprovare — e andato **peggio**:
+24.433 collisioni. A quel punto ho smesso di correggere e ho guardato:
+
+    nodo pulito      value =  0.0   puct = 0.1
+    nodo penalizzato value = -1.0   puct = 1.1
+
+Il virtual loss abbassava `child.value`, ma il PUCT usa `-child.value` — perche il valore
+del figlio e dal punto di vista dell'avversario. **Sottraendo, la penalita cambiava
+segno e diventava un bonus.** Piu penalizzavo un ramo, piu la selezione ci tornava.
+
+Il fix e un carattere: `value_sum - virtual_loss` diventa `value_sum + virtual_loss`.
+
+Effetto, 400 simulazioni con la rete vera:
+
+| batch | tempo | sim/s | chiamate GPU |
+|---|---|---|---|
+| 1 | 1,88 s | 213 | 401 |
+| 24 | 0,31 s | **1.276** | 21 |
+
+**La lezione comune.** Tutti e due i bug erano nel *codice di ottimizzazione*, non
+nell'algoritmo. L'MCTS "puro" — selezione, espansione, backup — ha funzionato al primo
+colpo. Il batching, che esiste solo per andare piu veloce, ha richiesto tre tentativi e
+ha prodotto un motore cieco e uno che si autosabotava.
+
+Vale il corollario della regola #4 (niente ottimizzazione senza profiling): **ogni
+ottimizzazione va verificata contro la versione lenta**, non solo cronometrata. Il test
+`test_il_batching_non_impedisce_di_vedere_i_terminali` confronta batch 1, 4, 8 e 24 sulla
+stessa posizione e pretende lo stesso risultato — se ci fosse stato dall'inizio, avrei
+saltato entrambi i giri.
+
+**Tre errori miei nei test, per completezza.** Prima di trovare i bug veri ho corretto
+tre volte il test "MCTS batte la policy pura", ogni volta convinto di aver trovato il
+problema:
+
+1. rete finta con valore costante zero — l'albero non ha nulla da ottimizzare, ripete
+2. `policy_player` con `max()` su priori uniformi — giocatore deterministico degenere,
+   muoveva la torre h8-g8 all'infinito
+3. `max_plies=160` — troncava partite in cui l'MCTS aveva **il doppio dei pezzi**
+
+Il terzo e **lo stesso errore gia commesso al Gate 2** con la baseline. Non l'ho
+riconosciuto subito: ho guardato il risultato ("6 patte su 6") invece dello stato finale
+delle partite. Bastava stampare il materiale.
+
+---
+
+### 2026-08-14 — La value head debole non ha impedito nulla
+
+Al Gate 4 la diagnosi era severa: CE 0,9038 contro 0,9710 di chi ignora la posizione,
+0,067 nats di guadagno. La domanda aperta era se una value head cosi povera rendesse
+l'MCTS inutile, dato che e lei a valutare le foglie.
+
+**Risposta: no.** Diagnosi §4.4 su 200 partite: **+486 Elo ± 103**, tre volte la soglia
+di 150 che il piano fissava come limite per intervenire.
+
+La spiegazione, a posteriori ovvia: la ricerca guadagna forza **anche solo esplorando**.
+
+- i terminali (matto, stallo, patta) sono risposte **esatte** e non passano dalla rete
+- vedere una cattura tre semimosse avanti non richiede valutazione posizionale raffinata
+- la policy, che invece funziona bene (top-1 51,66%), guida la selezione verso i rami
+  giusti, e la ricerca deve solo confermare o smentire
+
+Il valore serve a ordinare fra alternative che la tattica non risolve. Li e debole — e si
+vedra nel gioco posizionale a lungo termine, non nelle 400 simulazioni di una mossa.
+
+**Nessuna delle mitigazioni §4.4 e stata applicata**, perche non ce n'e stato bisogno.
+Restano disponibili per lo Stadio 6, dove il target del valore migliora da solo:
+nell'Expert Iteration il valore da imparare e il risultato della ricerca, non l'esito
+grezzo della partita.

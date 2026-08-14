@@ -326,19 +326,73 @@ guadagno e sotto 150 Elo, vanno applicate le mitigazioni prima di procedere alla
 |---|---|---|---|---|
 | — | best.pt | — | — | dopo lo Stadio 5 (MCTS) |
 
-## MCTS (Stadio 5)
+## MCTS (Stadio 5) — Gate 5 VERDE
 
-Diagnosi §4.4 — la misura piu importante dell'intero progetto:
+### 2026-08-14 — Diagnosi §4.4: la misura piu importante del progetto
+- Commit: `1a1e376`
+- Comando: `python scripts/run_diagnosi_44.py --games 200 --sims 400`
+- File: `runs/gate5/diagnosi_44_20260814T184806Z.json`
 
-| Data | Policy pura | Policy + MCTS 400 | Guadagno | IC | Esito |
-|---|---|---|---|---|---|
-| — | — | — | soglia: **≥150 Elo** | — | — |
+| | Policy + MCTS 400 sim | Policy pura |
+|---|---|---|
+| Risultato | **183W-6L-11D su 200 (94,2%)** | — |
+| Guadagno | **+486 Elo ± 103** (95%) | — |
+| Soglia del piano | ≥ 150 Elo | |
+| Durata | 198 min, 59,4 s per partita | |
 
-Scala delle simulazioni (deve essere monotona crescente):
+**La value head regge la ricerca.** Il guadagno e piu del triplo della soglia, e
+l'intervallo di confidenza non la sfiora nemmeno: il verdetto e statisticamente solido
+(regola #1).
 
-| Simulazioni | 50 | 200 | 800 |
+**Perche il risultato conta piu di quanto sembri.** La value head e debole in assoluto —
+al Gate 4 abbiamo misurato una CE di 0,9038 contro 0,9710 di chi ignora la posizione,
+appena 0,067 nats di guadagno. Il rischio era che una value head cosi povera rendesse la
+ricerca inutile, perche l'MCTS usa proprio quella testa per valutare le foglie.
+
+Non e successo. La spiegazione: la ricerca guadagna forza **anche solo esplorando**.
+Vedere una cattura tre semimosse piu avanti non richiede una valutazione posizionale
+raffinata, richiede di guardare — e i terminali (matto, stallo, patta) sono risposte
+esatte che non passano affatto dalla rete.
+
+Il piano prevedeva mitigazioni sotto i 150 Elo: **non servono**.
+
+### 2026-08-14 — Batteria §4.5
+- Comando: `python scripts/run_gate5_tests.py --games 14 --mate-positions 50`
+
+| Criterio | Esito |
+|---|---|
+| Matti in 1 a 50 simulazioni | **50/50** con rete cieca |
+| Matti in 1 a 400 simulazioni | **50/50** con rete cieca |
+| MCTS batte la policy pura (rete materiale) | +15,0 pedoni, in vantaggio 6/6 |
+| Simmetria colori (criticita #2) | 3/3 coerenti |
+| **Forza crescente con le simulazioni** | **7W-0L-7D (75%)**, Elo +191 ± 210 |
+
+L'ultimo e "il test piu diagnostico dell'intero progetto" secondo il piano: **zero
+sconfitte** per 800 simulazioni contro 50 dimostra che il backup del valore ha il segno
+giusto. Se fosse invertito, cercare di piu avrebbe peggiorato il gioco.
+
+Che i matti si trovino 50/50 con una rete che **non sa nulla di scacchi** (priori
+uniformi, valore sempre zero) dimostra che l'albero funziona indipendentemente dalla
+rete: il merito e della ricerca, non dei pesi.
+
+### 2026-08-14 — Prestazioni del batching (§4.3, criticita #8)
+- 400 simulazioni con la rete allenata, RTX 3050
+
+| `batch_size_leaves` | Tempo | Velocita | Chiamate GPU |
 |---|---|---|---|
-| Elo | — | — | — |
+| 1 (nessun batching) | 1,88 s | 213 sim/s | 401 |
+| 8 | 0,38 s | 1.055 sim/s | 53 |
+| **24** (default) | **0,31 s** | **1.276 sim/s** | **21** |
+
+**Sei volte piu veloce**, nell'ordine di grandezza che §4.3 prevedeva ("senza batching,
+30 sim/s invece di 400").
+
+### Da misurare
+| | |
+|---|---|
+| Elo vs Stockfish `UCI_Elo` 1400 / 1800 / 2200 | — |
+| Suite tattiche (1000 posizioni) | — |
+| Profiling: generazione mosse vs forward (criticita #6) | — |
 
 ## Expert Iteration (Stadio 6)
 

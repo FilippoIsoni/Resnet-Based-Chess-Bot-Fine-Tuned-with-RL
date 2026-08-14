@@ -12,9 +12,9 @@ Two docs are the source of truth and should be read before major changes:
 
 Also check `docs/DECISIONS.md`, `docs/JOURNAL.md`, `docs/RESULTS.md` for accumulated decisions/history, and `docs/CHECKLIST.md`.
 
-## Current state (2026-08-10)
+## Current state (2026-08-14)
 
-**Gates 1, 2 and 3 are green. Next stage is 4 (supervised training).**
+**Gates 1-5 are green. The bot works.** Next stage is 6 (Expert Iteration).
 
 | Gate | Status | Headline result |
 |---|---|---|
@@ -23,7 +23,28 @@ Also check `docs/DECISIONS.md`, `docs/JOURNAL.md`, `docs/RESULTS.md` for accumul
 | 1 encoding | green | 9 criteria; move round-trip on 1.78M legal moves, 0 failures |
 | 2 baseline | green | 5 criteria; **100W-0L-0D vs random** over 100 games (recorded in `runs/gate2/`) |
 | 3 data | green | 10 criteria; see dataset below |
-| 4 train | not started | — |
+| 4 train | green | 7 criteria; **top-1 51.66%** on validation (peak 52.11%) |
+| 5 mcts | green | 9 criteria; **+486 Elo ± 103** for MCTS over raw policy |
+| 6 rl-entry | not started | — |
+
+**The trained network exists.** `runs/supervised/best.pt` (144 MB, gitignored) —
+ResNet 8×128, 12.0M parameters, 12 epochs over 233.5M positions in 11.8 h on the RTX 3050.
+Published as GitHub release `v0.1-supervised` so the macOS collaborator can use it without
+retraining.
+
+| | |
+|---|---|
+| Policy top-1 / top-5 | **51.66% / 89.37%** |
+| Value head (WDL cross-entropy) | 0.9038 — barely above the 0.9710 of ignoring the position |
+| MCTS speed | 1,276 sim/s with `batch_size_leaves=24` (213 without batching) |
+
+**The value head is weak and it did not matter.** Criticità #5 materialised exactly as
+predicted — without Stockfish distillation the game outcome is too noisy a label, and the
+network gained only 0.067 nats over a strategy that ignores the board. The §4.4 diagnosis
+was supposed to decide whether that made search useless: it gave **+486 Elo over 200
+games**, three times the 150-Elo threshold. Search adds strength by exploring, not only by
+evaluating — terminals are exact and need no network at all. **None of the §4.4 mitigations
+were applied**, they remain available for Stage 6.
 
 **The dataset exists and is verified.** `data/processed/` holds **20,000,000 positions**
 (2.0 GB) from `lichess_db_standard_rated_2026-07.pgn.zst`, built at commit `669d452`:
