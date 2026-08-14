@@ -109,10 +109,17 @@ class CheckpointMeta:
 
 
 def rng_state() -> dict[str, Any]:
-    """Fotografa lo stato di tutti i generatori casuali."""
+    """Fotografa lo stato di tutti i generatori casuali.
+
+    Si usa l'API legacy `np.random.get_state()` e non un `Generator`, come segnala
+    NPY002: qui serve lo stato **globale**, che e quello usato dai worker del DataLoader
+    e dalle librerie di terze parti su cui non abbiamo controllo. Un Generator locale
+    non li raggiungerebbe, e la ripresa non sarebbe riproducibile. Stessa scelta gia
+    fatta e motivata in `utils/seed.py`.
+    """
     state = {
         "python": random.getstate(),
-        "numpy": np.random.get_state(),
+        "numpy": np.random.get_state(),  # noqa: NPY002
         "torch": torch.get_rng_state(),
     }
     if torch.cuda.is_available():
@@ -130,7 +137,7 @@ def restore_rng_state(state: dict[str, Any]) -> None:
     > esplicitamente su CPU prima di usarli.
     """
     random.setstate(state["python"])
-    np.random.set_state(state["numpy"])
+    np.random.set_state(state["numpy"])  # noqa: NPY002 — stato globale, vedi rng_state()
 
     torch.set_rng_state(state["torch"].cpu().to(torch.uint8))
     if "cuda" in state and torch.cuda.is_available():

@@ -79,7 +79,7 @@ class ChessPositions(Dataset):
 
         # Quante righe ha ogni shard. Si legge l'header del .npy, non il contenuto.
         lengths = [len(np.load(p, mmap_mode="r")) for p in self.paths]
-        self.offsets = np.cumsum([0] + lengths)
+        self.offsets = np.cumsum([0, *lengths])
         self.total = int(self.offsets[-1])
         if limit is not None:
             self.total = min(self.total, limit)
