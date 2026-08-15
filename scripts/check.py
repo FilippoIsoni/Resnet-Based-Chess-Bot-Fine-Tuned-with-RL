@@ -822,6 +822,109 @@ def _check_diagnosi_44() -> Result:
     )
 
 
+def check_rl_entry_gate() -> list[Result]:
+    """Gate 6 di ingresso — da superare PRIMA della prima iterazione (§3, Stadio 6).
+
+    I cinque criteri di PIPELINE.md. Sono tutti "infrastruttura pronta", non risultati:
+    servono a garantire che il ciclo RL, che dura giorni, non parta con un pezzo rotto.
+    """
+    mod = SRC / "chessbot" / "training"
+    if not (mod / "expert_iteration.py").exists():
+        return [Result("gate rl-entry", "SKIP", "expert_iteration.py non ancora implementato")]
+
+    results: list[Result] = []
+
+    criteri = {
+        "batching fra partite implementato (criticita #8)": (
+            "test_il_batching_fra_partite_raggruppa"
+        ),
+        "aperture randomizzate attive (criticita #7)": (
+            "test_le_aperture_diversificano_le_partite or test_sample_openings_pesca_dal_libro"
+        ),
+        "gating testato su reti note-diverse": (
+            "test_sprt_promuove_una_rete_nettamente_migliore or test_sprt_rifiuta_una_rete_peggiore"
+        ),
+        "l'SPRT non decide su campioni minuscoli": "test_sprt_non_decide_dopo_una_partita",
+        "criteri di stop letti da configs/rl.yaml (criticita #9)": (
+            "test_carica_i_criteri_di_stop_dal_file or test_stop_al_tetto_di_iterazioni"
+        ),
+        "target del valore misto (§5.5)": "test_target_misto_fra_q_e_risultato",
+        "loss RL derivabile e ancorata dalla KL": (
+            "test_la_loss_rl_e_finita_e_derivabile or test_la_penalita_kl_aumenta_la_loss"
+        ),
+        "optimizer SGD, non Adam (§5.2)": "test_optimizer_e_sgd_non_adam",
+    }
+    for etichetta, expr in criteri.items():
+        p = run_module("pytest", "-q", "--no-header", "tests/unit", "-k", expr)
+        if p.returncode == 5:
+            results.append(Result(etichetta, "FAIL", f"nessun test corrisponde a '{expr}'"))
+        else:
+            results.append(
+                Result(
+                    etichetta,
+                    "PASS" if p.returncode == 0 else "FAIL",
+                    "" if p.returncode == 0 else p.stdout.strip()[-500:],
+                )
+            )
+
+    results.append(_check_speedup_batching())
+    results.append(_check_opening_book())
+    return results
+
+
+def _check_speedup_batching() -> Result:
+    """Il criterio numerico: il batching fra partite deve dare almeno 5x.
+
+    Legge la misura registrata invece di rifarla: richiede la GPU e un minuto abbondante.
+    """
+    import json
+
+    path = ROOT / "runs" / "gate6" / "speedup.json"
+    if not path.exists():
+        return Result(
+            "speedup del batching >= 5x",
+            "SKIP",
+            "non misurato — eseguire: python scripts/measure_speedup.py",
+        )
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        return Result("speedup del batching >= 5x", "FAIL", f"{path.name}: {e}")
+
+    speedup = data.get("speedup", 0.0)
+    return Result(
+        "speedup del batching >= 5x",
+        "PASS" if speedup >= 5.0 else "FAIL",
+        f"{speedup:.1f}x ({data.get('baseline_games_per_hour', 0):.0f} -> "
+        f"{data.get('best_games_per_hour', 0):.0f} partite/h)",
+    )
+
+
+def _check_opening_book() -> Result:
+    """Il libro d'aperture esiste ed e vario."""
+    import json
+
+    path = ROOT / "data" / "books" / "openings.json"
+    if not path.exists():
+        return Result(
+            "libro d'aperture generato",
+            "SKIP",
+            "assente — viene generato al primo run di scripts/run_rl.py",
+        )
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        return Result("libro d'aperture generato", "FAIL", f"{path.name}: {e}")
+
+    n = len(data.get("fens", []))
+    # Sotto un centinaio di posizioni la varieta non basta a contrastare le patte.
+    return Result(
+        "libro d'aperture generato",
+        "PASS" if n >= 100 else "FAIL",
+        f"{n} posizioni di apertura",
+    )
+
+
 def _stage_placeholder(stage: str, module: str, tests_dir: str) -> list[Result]:
     """Gate delle fasi successive: SKIP finche il codice non esiste."""
     mod_path = SRC / "chessbot" / module
@@ -868,7 +971,7 @@ STAGES = {
     "data": check_data_gate,
     "train": check_train_gate,
     "mcts": check_mcts_gate,
-    "rl-entry": lambda: _stage_placeholder("rl-entry", "training", "integration"),
+    "rl-entry": check_rl_entry_gate,
 }
 
 
