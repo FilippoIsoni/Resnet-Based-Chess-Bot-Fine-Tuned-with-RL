@@ -12,9 +12,9 @@ Two docs are the source of truth and should be read before major changes:
 
 Also check `docs/DECISIONS.md`, `docs/JOURNAL.md`, `docs/RESULTS.md` for accumulated decisions/history, and `docs/CHECKLIST.md`.
 
-## Current state (2026-08-14)
+## Current state (2026-08-16)
 
-**Gates 1-5 are green. The bot works.** Next stage is 6 (Expert Iteration).
+**All gates are green. The project is complete through Stage 6.**
 
 | Gate | Status | Headline result |
 |---|---|---|
@@ -25,7 +25,8 @@ Also check `docs/DECISIONS.md`, `docs/JOURNAL.md`, `docs/RESULTS.md` for accumul
 | 3 data | green | 10 criteria; see dataset below |
 | 4 train | green | 7 criteria; **top-1 51.66%** on validation (peak 52.11%) |
 | 5 mcts | green | 9 criteria; **+486 Elo ± 103** for MCTS over raw policy |
-| 6 rl-entry | not started | — |
+| 6 rl-entry | green | 10 criteria; batching speedup **6.6×** |
+| 6 RL run | done | 25 iterations, 7 promotions, **+119 ± 51 Elo** over the supervised net |
 
 **The trained network exists.** `runs/supervised/best.pt` (144 MB, gitignored) —
 ResNet 8×128, 12.0M parameters, 12 epochs over 233.5M positions in 11.8 h on the RTX 3050.
@@ -44,7 +45,14 @@ network gained only 0.067 nats over a strategy that ignores the board. The §4.4
 was supposed to decide whether that made search useless: it gave **+486 Elo over 200
 games**, three times the 150-Elo threshold. Search adds strength by exploring, not only by
 evaluating — terminals are exact and need no network at all. **None of the §4.4 mitigations
-were applied**, they remain available for Stage 6.
+were applied.** Expert Iteration then halved the value loss on its own (0.3406 → 0.1481),
+because the RL target is the search result rather than the raw game outcome (§5.5).
+
+**The RL weights live in `runs/rl/main/state.pt`** (gitignored). Measure any claim about
+them with `scripts/measure_rl_gain.py`, never by summing the per-iteration gating
+estimates: that sum overstated the gain by a factor of 3.2 (+380 vs the measured
++119 ± 51). Relative gains against a moving opponent do not compose, and their confidence
+intervals accumulate — see docs/JOURNAL.md, 2026-08-16.
 
 **The dataset exists and is verified.** `data/processed/` holds **20,000,000 positions**
 (2.0 GB) from `lichess_db_standard_rated_2026-07.pgn.zst`, built at commit `669d452`:

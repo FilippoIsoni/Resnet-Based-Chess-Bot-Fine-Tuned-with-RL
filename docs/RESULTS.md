@@ -394,11 +394,86 @@ rete: il merito e della ricerca, non dei pesi.
 | Suite tattiche (1000 posizioni) | — |
 | Profiling: generazione mosse vs forward (criticita #6) | — |
 
-## Expert Iteration (Stadio 6)
+## Expert Iteration (Stadio 6) — completato
 
-| Iter | Partite | % patte | Gating | Elo cumulativo | IC | Promosso |
-|---|---|---|---|---|---|---|
-| — | — | — | — | — | — | — |
+### 2026-08-16 — Il numero che conta: +119 ± 51 Elo
+- Commit: `8077dd5`
+- Comando: `python scripts/measure_rl_gain.py --games 200 --sims 100`
+- File: `runs/gate6/rl_gain_20260816T132134Z.json`
+
+**Rete finale dopo 25 iterazioni contro la rete supervisionata di partenza:**
+
+| | |
+|---|---|
+| Risultato | **101W-35L-64D su 200 (66,5%)** |
+| Guadagno | **+119 ± 51 Elo** (95%) |
+| Durata del match | 66 min |
+
+L'intervallo di confidenza sta **tutto sopra lo zero**: il miglioramento e dimostrato,
+non supposto. Rientra nella forbice che il piano prevedeva (§5.6: "+100-250 Elo per 3-4
+settimane di macchina"), ottenuto pero in 21 ore invece che in settimane.
+
+### 2026-08-16 — Perche NON riportiamo "+380 Elo"
+
+Il `summary.json` del ciclo somma le stime dei singoli gating e arriva a +380. **Quel
+numero e sbagliato di un fattore 3,2**, e vale la pena capire perche:
+
+| | Valore | Affidabilita |
+|---|---|---|
+| Somma delle stime dei gating | +380 | IC ~±233 |
+| **Misura diretta finale vs iniziale** | **+119 ± 51** | IC stretto |
+
+Due errori si sommano nella cifra gonfiata:
+
+1. **Gli intervalli si accumulano.** Ogni gating ha IC ±88 su 60 partite; sommandone
+   sette l'incertezza sale a ~±233 — piu del doppio del guadagno vero.
+2. **Misura la cosa sbagliata.** Ogni gating confronta la rete nuova con la
+   **precedente**, non con quella di partenza. I guadagni relativi non si sommano: se A
+   batte B di 40 Elo e B batte C di 40, A non batte C di 80.
+
+E la regola #1 applicata con severita: un numero senza intervallo di confidenza non e un
+risultato, e una somma di numeri incerti e piu incerta della somma.
+
+### 2026-08-16 — Il ciclo RL
+
+| | |
+|---|---|
+| Iterazioni | 25 di 25 (tetto: 40) |
+| Promozioni | **7** |
+| Partite per iterazione | 200 x 100 simulazioni |
+| Posizioni generate | ~17.000 per iterazione |
+| Replay buffer | ~153.000 posizioni |
+| Patte | **16% medio** (min 12%, max 22%) |
+| Durata | **20,8 h** |
+
+**Le due contromisure hanno funzionato:**
+
+- **Criticita #7 (patte nel self-play):** 16% medio contro una soglia di allarme al 70%.
+  Le aperture randomizzate dal libro di 400 posizioni, la temperatura a 1.0 per le prime
+  15 mosse e il rumore di Dirichlet hanno tenuto le partite diverse fra loro.
+- **Criticita #5 (value head debole):** la value loss si e **dimezzata** durante l'RL,
+  da 0,3406 a 0,1481. E la componente che al Gate 4 era il punto debole del progetto, e
+  l'Expert Iteration l'ha migliorata da sola — come previsto, perche il target diventa il
+  risultato della ricerca invece dell'esito grezzo della partita (§5.5).
+
+Andamento delle loss (prima → ultima iterazione):
+
+| | Inizio | Fine |
+|---|---|---|
+| policy | 2,1408 | 1,9058 |
+| value | 0,3406 | **0,1481** |
+| KL | 0,0627 | 0,0672 |
+
+La KL resta bassa e stabile: la rete non ha derivato verso strategie degeneri di
+self-play, che era lo scopo dell'ancoraggio alla policy supervisionata (§5.2).
+
+**Nota sul gating.** Nessuna promozione ha superato la soglia SPRT: la LLR massima e
+stata +0,89 contro una soglia di 2,94. Le sette promozioni sono avvenute per la regola di
+fallback (≥55% a fine partite). Con 60 partite per gating — invece delle 200 che §5.2
+raccomanda — l'SPRT non ha abbastanza campione per decidere. E una scelta consapevole
+per contenere i tempi, e il costo e che ogni singola promozione e meno certa; la misura
+finale su 200 partite compensa, perche e quella che conta.
 
 Criteri di stop attivi (da `configs/rl.yaml`): gating mai passato per 10 iterazioni /
-< 50 Elo dopo 25 / tetto duro a 40.
+< 50 Elo dopo 25 / tetto duro a 40. Nessuno e scattato: il ciclo e arrivato a 25 come
+pianificato.

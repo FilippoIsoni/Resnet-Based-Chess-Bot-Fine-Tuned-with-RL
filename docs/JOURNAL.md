@@ -391,3 +391,68 @@ vedra nel gioco posizionale a lungo termine, non nelle 400 simulazioni di una mo
 Restano disponibili per lo Stadio 6, dove il target del valore migliora da solo:
 nell'Expert Iteration il valore da imparare e il risultato della ricerca, non l'esito
 grezzo della partita.
+
+---
+
+### 2026-08-16 — Stadio 6: il "+380 Elo" era falso di un fattore 3
+
+Il ciclo RL e andato bene: 25 iterazioni, 7 promozioni, 20,8 ore, patte al 16%. Ma il
+numero che il riepilogo stampava era **sbagliato**, e la storia di come me ne sono
+accorto vale piu del risultato.
+
+**Cosa diceva lo script.** `summary.json` sommava le stime Elo dei singoli gating:
++41, +83, +53, +41, +41, +58, +64 = **+380 Elo cumulativo**.
+
+**Perche e falso.** Due errori indipendenti, entrambi bastanti da soli:
+
+1. **Gli intervalli si accumulano.** Ogni gating aveva IC ±88 su 60 partite. Sommandone
+   sette, l'incertezza sale a ~±233 — piu del doppio del guadagno reale. Un "+380 ± 233"
+   non e un'affermazione, e un'ammissione di ignoranza.
+2. **Misura la cosa sbagliata.** Ogni gating confronta la rete nuova con la
+   **precedente**, non con quella di partenza. I guadagni relativi non compongono: se A
+   batte B di 40 Elo e B batte C di 40, A **non** batte C di 80.
+
+**Il numero vero.** Match diretto fra rete finale e rete supervisionata, 200 partite:
+**101W-35L-64D, +119 ± 51 Elo**. L'intervallo sta tutto sopra lo zero, quindi il
+miglioramento e dimostrato — ma e **un terzo** di quanto il riepilogo suggeriva.
+
+**Il segnale che avrebbe dovuto insospettirmi prima.** Nessun gating aveva superato la
+soglia SPRT: LLR massima +0,89 contro 2,94. Tutte e sette le promozioni erano avvenute
+per la regola di fallback (≥55% a fine partite), non per evidenza statistica. Con 60
+partite per gating l'SPRT non ha abbastanza campione per decidere, e il fallback e piu
+permissivo: promuove al 55% anche quando l'IC va da -30 a +110.
+
+Avevo quel dato sotto gli occhi ad ogni iterazione e non l'ho letto come un avvertimento.
+
+**La lezione, che e la regola #1 in forma piu severa.** Non basta che ogni numero abbia
+un intervallo di confidenza: bisogna anche chiedersi **se sommare quei numeri abbia
+senso**. Sette misure rumorose della stessa quantita si mediano e l'incertezza cala;
+sette misure rumorose di quantita *diverse* si sommano e l'incertezza cresce.
+
+Il codice ora riporta entrambi i numeri, con `measure_rl_gain.py` che spiega nel
+docstring perche il primo non va usato. Non ho tolto il cumulativo dal riepilogo: e utile
+per vedere l'andamento, purche si sappia cos'e.
+
+---
+
+### 2026-08-16 — La value head si e sistemata da sola
+
+Al Gate 4 la value head era il punto debole misurato del progetto: CE 0,9038 contro
+0,9710 di chi ignora la posizione, appena 0,067 nats di guadagno. Al Gate 5 avevamo
+verificato che non impediva all'MCTS di funzionare (+486 Elo sulla policy pura), ma
+restava debole.
+
+**L'Expert Iteration l'ha dimezzata**: value loss da 0,3406 a 0,1481 in 25 iterazioni.
+
+Il motivo e strutturale, non fortuna. Nel training supervisionato il target del valore
+era l'**esito della partita**: una posizione vinta etichettata "sconfitta" perche venti
+mosse dopo qualcuno ha sbagliato. Rumore puro. Nell'Expert Iteration il target diventa
+`0.4 * Q_radice + 0.6 * z` (§5.5): Q e la stima prodotta dalla ricerca appena fatta su
+quella posizione, molto meno rumorosa dell'esito finale.
+
+E la conferma sul campo di cio che §5.5 prometteva — "costa una riga di codice", ed e
+vero: la riga e `value_target()` in `search/parallel.py`.
+
+**Cosa resta aperto.** La value head e migliorata ma non e forte in assoluto: non l'ho
+rimisurata contro le baseline banali dopo l'RL, e sarebbe la verifica onesta da fare
+prima di dire che il problema e risolto.
