@@ -394,6 +394,45 @@ rete: il merito e della ricerca, non dei pesi.
 | Suite tattiche (1000 posizioni) | — |
 | Profiling: generazione mosse vs forward (criticita #6) | — |
 
+## Forza assoluta — Elo 1964 ± 62
+
+### 2026-08-16 — Scala contro Stockfish (Appendice A)
+- Commit: `2f31d45`
+- Comando: `python scripts/run_elo_ladder.py --levels 1400 1800 2200 --games 60 --sims 200`
+- Motore: rete RL iterazione 25, 200 simulazioni per mossa
+- Stockfish 18 con `UCI_LimitStrength`, 0,1 s per mossa
+- File: `runs/elo/ladder_20260816T174336Z.json`
+
+| Avversario | Risultato | Punteggio | Elo stimato |
+|---|---|---|---|
+| Stockfish 1400 | 56W-3L-1D | 94,2% | 1883 ± 188 |
+| Stockfish 1800 | 30W-13L-17D | 64,2% | 1901 ± 92 |
+| Stockfish 2200 | 11W-35L-14D | 30,0% | 2053 ± 96 |
+
+**Elo stimato: 1964 ± 62.**
+
+Le tre stime sono **coerenti fra loro**: lo spread e 170 Elo, sotto la soglia di 200
+oltre la quale il profilo di forza andrebbe considerato irregolare. Un motore forte in
+tattica e debole in posizionale darebbe stime molto diverse ai vari livelli; qui non
+succede, quindi il numero unico descrive bene la forza.
+
+Le stime si combinano con **media pesata sull'inverso della varianza**, non sommandole:
+i tre livelli misurano la *stessa* quantita da angoli diversi, quindi mediare riduce
+l'incertezza (±62 contro i ±92-188 dei singoli). E l'opposto del caso dello Stadio 6,
+dove sommavo guadagni contro avversari diversi — vedi docs/JOURNAL.md, 2026-08-16.
+
+**Rispetto alle attese del piano.** §4.7 prevedeva 2000-2300 Elo dopo l'MCTS. Il valore
+misurato e appena sotto la forbice, e coerente: batte comodamente il livello 1400,
+supera il 1800, e perde contro il 2200 vincendo comunque una partita su tre.
+
+**Cosa non dice questo numero.** E l'Elo contro Stockfish limitato, a 200 simulazioni per
+mossa e con Stockfish a 0,1 s. Con piu simulazioni o piu tempo il risultato cambierebbe,
+e l'Elo su una piattaforma come Lichess — con avversari umani e time control diversi —
+non e la stessa scala. Serve come misura di riferimento riproducibile, non come rating
+ufficiale.
+
+---
+
 ## Expert Iteration (Stadio 6) — completato
 
 ### 2026-08-16 — Il numero che conta: +119 ± 51 Elo

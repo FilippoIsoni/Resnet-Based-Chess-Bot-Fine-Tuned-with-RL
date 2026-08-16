@@ -28,6 +28,10 @@ Also check `docs/DECISIONS.md`, `docs/JOURNAL.md`, `docs/RESULTS.md` for accumul
 | 6 rl-entry | green | 10 criteria; batching speedup **6.6×** |
 | 6 RL run | done | 25 iterations, 7 promotions, **+119 ± 51 Elo** over the supervised net |
 
+**Measured strength: Elo 1964 ± 62** against Stockfish with `UCI_LimitStrength`
+(94.2% vs 1400, 64.2% vs 1800, 30.0% vs 2200 — the three estimates agree within 170 Elo).
+Reproduce with `scripts/run_elo_ladder.py`.
+
 **The trained network exists.** `runs/supervised/best.pt` (144 MB, gitignored) —
 ResNet 8×128, 12.0M parameters, 12 epochs over 233.5M positions in 11.8 h on the RTX 3050.
 Published as GitHub release `v0.1-supervised` so the macOS collaborator can use it without
