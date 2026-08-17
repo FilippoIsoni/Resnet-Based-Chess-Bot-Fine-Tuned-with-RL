@@ -203,6 +203,55 @@ Lo stadio più fragile del progetto. Il gate qui è quello che ripaga di più.
 - [ ] Elo cumulativo e intervallo di confidenza aggiornati in `docs/RESULTS.md`
 - [ ] stop se: gating mai passato per 10 iterazioni / < 50 Elo dopo 25 / 40 iterazioni totali
 
+### Stadio 7 — Deployment web (Appendice B) `[diviso fra due persone]`
+
+Il motore è forte 1964 ± 62 Elo ma raggiungibile solo da terminale, da chi ha repo, venv e
+pesi. Questo stadio lo rende giocabile da un browser.
+
+**Il vincolo che decide l'architettura:** GitHub Pages serve solo file statici, non esegue
+Python. Quindi la UI compilata sta su Pages e il motore gira altrove come servizio HTTP.
+
+| Metà | Assegnata a | Cosa | Dove |
+|---|---|---|---|
+| **Frontend** | Filippo (Windows) | UI Flutter Web, deploy su GitHub Pages | `web/`, `.github/workflows/pages.yml` |
+| **Backend** | collaboratore su Mac | server FastAPI, inferenza torch, deploy su HF Spaces | `src/chessbot/api/`, `deploy/`, `requirements-serve.txt` |
+
+**`docs/API_CONTRACT.md` è il contratto vincolante fra le due metà.** Chi ha bisogno di
+cambiare forma delle richieste, codici d'errore, origini CORS o la convenzione di segno di
+`eval` modifica prima quel file e lo comunica all'altro. Cambiare il proprio lato sperando
+che l'altro se ne accorga è il modo garantito di perdere una serata sul collegamento.
+
+**Nessuna delle due metà blocca l'altra.** La UI si costruisce contro un `FakeEngine` che
+restituisce una mossa legale casuale, quindi può essere finita e pubblicata prima che il
+backend esista; il backend si verifica con `curl` e pytest. Il collegamento finale è un
+cambio di URL.
+
+**Gate 7-frontend** (verifica manuale, non c'è `--stage` per Flutter)
+- [ ] `flutter analyze` senza segnalazioni e `flutter test` verde
+- [ ] partita intera giocabile contro `FakeEngine`: mosse legali, arrocco, promozione, en passant
+- [ ] esito corretto su matto, stallo, materiale insufficiente, ripetizione
+- [ ] la barra di valutazione **non si inverte ad ogni mossa** — l'API espone `eval` dal punto
+      di vista di chi muove, la barra lo vuole dal punto di vista del bianco (criticità #2
+      estesa alla UI: attraversa tre confini e nessuno crasha se sbagliata)
+- [ ] `flutter build web --release --base-href /<nome-repo>/` completa
+- [ ] la pagina pubblicata non è bianca — senza `--base-href` corretto lo è, e la console non
+      dice niente di utile
+- [ ] stati di errore visibili all'utente: backend irraggiungibile, 429, 503, timeout
+
+**Gate 7-backend** (`--stage api`, da implementare in `scripts/check.py`)
+- [ ] `src/chessbot/api/` implementato oltre `__init__.py`
+- [ ] `tests/unit/test_api.py` verde, con evaluator finto — i test `fast` non caricano 48 MB di pesi
+- [ ] test sul **segno di `eval`**: dato un evaluator a valore noto, la risposta ha il segno
+      del lato che muove
+- [ ] FEN malformato o illegale → 422, mai 500
+- [ ] posizione terminale → `move: null` senza eccezioni
+- [ ] `/health` risponde **mentre** è in corso una ricerca a 800 simulazioni — se si blocca,
+      l'handler è stato scritto `async def` e la ricerca CPU-bound sta bloccando l'event loop
+- [ ] CORS: header presente per l'origine di Pages, assente per un'origine non autorizzata
+- [ ] `requirements-serve.txt` coerente con la scelta torch (niente `onnxruntime`)
+- [ ] tempi misurati sullo Space reale per i tre livelli; se `hard` supera ~8 s si scende a
+      400 simulazioni — decisione sui dati, non sulla stima
+
 ---
 
 ## 4. Regole permanenti
@@ -237,18 +286,25 @@ chess-bot/
 │   ├── training/     # loop supervisionato + Expert Iteration ← Stadi 4, 6
 │   ├── eval/         # match, Elo, SPRT, suite tattiche
 │   ├── baseline/     # minimax + PST                          ← Stadio 2
-│   ├── api/          # FastAPI per il deployment              ← Appendice B
+│   ├── api/          # FastAPI per il deployment              ← Stadio 7 [backend]
 │   └── utils/        # config, seed, logging, checkpoint
+├── web/              # app Flutter: UI su GitHub Pages        ← Stadio 7 [frontend]
+│   ├── lib/          #   engine/ (interfaccia + client HTTP + finto), game/ (UI)
+│   └── test/         #   test Dart, girano con `flutter test`
+├── deploy/           # Dockerfile e istruzioni per HF Spaces  ← Stadio 7 [backend]
 ├── tests/
 │   ├── unit/         # veloci, girano ad ogni commit
 │   ├── integration/  # lenti, girano nei gate
 │   └── golden/       # file JSON di riferimento, versionati
 ├── scripts/          # check.py, preflight.py, entrypoint delle fasi
 ├── configs/          # YAML: default, train, rl, eval
-├── docs/             # JOURNAL, RESULTS, DECISIONS
+├── docs/             # JOURNAL, RESULTS, DECISIONS, API_CONTRACT
 ├── data/             # ignorato da git
 └── runs/             # checkpoint e log, ignorato da git
 ```
+
+`web/` sta fuori da `src/` di proposito: `src/` è il package Python (`pyproject.toml` ha
+`where = ["src"]`) e un progetto Dart lì dentro confonderebbe sia pip sia gli strumenti.
 
 ---
 
@@ -266,6 +322,12 @@ Segue §"Ordine di attacco" del piano, con i gate innestati:
 | 5 | Training supervisionato | Gate 4 |
 | 6 | MCTS + libro + diagnosi §4.4 | **Gate 5** → bot funzionante |
 | 7 | Expert Iteration | Gate 6 |
+| 8a | UI Flutter + GitHub Pages `[Filippo]` | Gate 7-frontend |
+| 8b | Backend FastAPI + HF Spaces `[collaboratore su Mac]` | Gate 7-backend |
 
 I gate in grassetto sono quelli che proteggono dalle criticità silenziose. Sono i meno
 gratificanti da scrivere e gli unici che salvano settimane.
+
+Gli ultimi due sono paralleli e indipendenti: 8a si sviluppa contro un motore finto, 8b si
+verifica con `curl`. Si incontrano solo alla fine, e il punto d'incontro è
+`docs/API_CONTRACT.md`.

@@ -6,12 +6,23 @@ comprensione del percorso si.
 
 **Stack:** Python 3.11 + PyTorch (CUDA 12.6) · **Hardware:** RTX 3050 Laptop, 6 GB VRAM.
 
+## Stato
+
+**Il motore è finito e misurato: Elo 1964 ± 62** contro Stockfish a forza limitata
+(`UCI_LimitStrength`). ResNet 8×128 da 12,0 M parametri, addestrata su 20 M posizioni
+Lichess e poi affinata con Expert Iteration (25 iterazioni, +119 ± 51 Elo). Tutti i gate
+da 0 a 6 sono verdi.
+
+In corso lo **Stadio 7**: renderlo giocabile da browser. Il lavoro è diviso in due metà
+indipendenti — vedi sotto.
+
 ## Documenti
 
 | File | Contenuto |
 |---|---|
 | [piano-motore-scacchi.md](piano-motore-scacchi.md) | **Il cosa** — architettura, fasi, criticita tecniche |
 | [PIPELINE.md](PIPELINE.md) | **Il come** — ordine di lavoro, gate di verifica, regole permanenti |
+| [docs/API_CONTRACT.md](docs/API_CONTRACT.md) | **Il contratto** fra UI e backend — da leggere prima di toccare lo Stadio 7 |
 | [docs/VENV.md](docs/VENV.md) | Ambiente: cosa contiene e perche |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Scelte non ovvie e deviazioni dal piano |
 | [docs/RESULTS.md](docs/RESULTS.md) | Registro delle misure, fallimenti compresi |
@@ -80,6 +91,44 @@ resto ci si appoggia.
 In parallelo, lo **Stadio 0-bis**: verifica di compatibilità macOS, assegnata al
 collaboratore su Mac. Va chiuso prima dello Stadio 1, così i file golden nascono già
 validati su entrambe le piattaforme.
+
+## Stadio 7 — giocarci dal browser
+
+Il motore esiste ma è raggiungibile solo da terminale. Lo Stadio 7 lo mette online, e il
+vincolo che decide tutto è che **GitHub Pages serve solo file statici**: non esegue Python.
+Quindi l'interfaccia compilata sta su Pages e il motore gira altrove come servizio HTTP.
+
+```
+   Browser
+      │
+      ├── GitHub Pages ──────► UI Flutter (statica)          [Filippo]
+      │                             │
+      │                             │  POST /move {fen, level}
+      │                             ▼
+      └── Hugging Face Spaces ─► FastAPI + ResNet + MCTS     [collaboratore Mac]
+```
+
+| Metà | Chi | Cosa | Dove |
+|---|---|---|---|
+| Frontend | Filippo | UI Flutter Web, deploy su Pages | `web/` |
+| Backend | collaboratore su Mac | server FastAPI, deploy su HF Spaces | `src/chessbot/api/`, `deploy/` |
+
+Le due metà si sviluppano **in parallelo e senza dipendere l'una dall'altra**: la UI si
+costruisce contro un motore finto che restituisce mosse casuali, il backend si verifica con
+`curl`. L'unico punto di accordo è [docs/API_CONTRACT.md](docs/API_CONTRACT.md), che va
+modificato *prima* di cambiare il proprio lato.
+
+Tre livelli di difficoltà, che sono lo stesso motore con profondità di ricerca diversa:
+50 simulazioni (~1500 Elo stimato), 200 (**1964 ± 62 misurato**), 800 (~2100 stimato).
+
+### Sviluppo della UI
+
+```bash
+cd web
+flutter pub get
+flutter analyze && flutter test
+flutter run -d chrome                    # motore finto, non serve il backend
+```
 
 ## Il principio
 

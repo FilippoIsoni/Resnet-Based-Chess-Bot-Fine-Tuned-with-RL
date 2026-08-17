@@ -189,3 +189,66 @@ ordini di grandezza, rendendo prive di senso tutte le soglie numeriche del Gate 
 - Mascherare dopo la loss invece che prima — cambierebbe la distribuzione su cui la rete
   e ottimizzata rispetto a quella usata in inferenza (criticita #12).
 **Reversibilita:** alta, una funzione isolata.
+
+### 2026-08-17 — Stadio 7 diviso fra due persone, con un contratto scritto
+**Contesto:** il deployment web ha due meta tecnologicamente distanti — una UI Flutter e
+un server Python — e due persone su due sistemi operativi diversi. Svilupparle in
+sequenza significa che una delle due aspetta.
+**Scelta:** frontend a Filippo (Windows), backend al collaboratore su Mac, sviluppo in
+parallelo, con `docs/API_CONTRACT.md` come unico punto di accordo vincolante. La UI si
+costruisce contro un `FakeEngine` che restituisce mosse legali casuali, cosi puo essere
+finita e pubblicata prima che il backend esista.
+**Motivo:** l'unico accoppiamento reale fra le due meta e la forma delle richieste e delle
+risposte. Fissarla per iscritto costa mezz'ora e rimuove la dipendenza temporale; lasciarla
+implicita la fa scoprire durante il collegamento, quando entrambe le parti sono gia scritte
+e ogni divergenza costa una modifica per lato.
+**Alternative scartate:** generare il client Dart da OpenAPI — eliminerebbe le divergenze
+di forma ma richiede che il backend esista prima della UI, cioe reintroduce esattamente la
+dipendenza che si vuole togliere.
+**Reversibilita:** alta.
+
+### 2026-08-17 — torch CPU invece di ONNX per il backend
+**Contesto:** l'Appendice B prescrive di esportare la rete in ONNX e servirla con
+onnxruntime (~15 MB) invece che con PyTorch (200+ MB), e `requirements-serve.txt` era
+scritto di conseguenza.
+**Scelta:** servire con torch CPU, riusando `Evaluator` e `run_mcts` invariati.
+**Motivo:** su Hugging Face Spaces il peso dell'immagine non e un vincolo, e l'export
+introdurrebbe un rischio di divergenza numerica su una rete la cui value head e gia il
+punto debole del progetto (criticita #5). Inoltre `.onnx` e vietato sia da `.gitignore`
+sia da `forbidden_ext` in `scripts/check.py`, quindi il vantaggio "artefatto leggero e
+committabile" non esiste comunque. Da notare che `onnx` e `onnxscript` non sono nemmeno
+installati nel venv: l'export non e mai stato provato.
+**Alternative scartate:** esportare in ONNX e scrivere un evaluator alternativo con la
+stessa interfaccia — fattibile, e la classe `Evaluator` e progettata per essere sostituita,
+ma richiede l'export piu la verifica di parita a 1e-3 che il piano stesso impone. Lavoro
+reale per un beneficio che su questo hosting non si materializza.
+**Reversibilita:** media — `Evaluator` e sostituibile per costruzione, ma va scritto
+l'export e la batteria di parita.
+
+### 2026-08-17 — Hugging Face Spaces invece di Fly.io
+**Contesto:** l'Appendice B raccomanda Fly.io per il risveglio rapido (2-5 s).
+**Scelta:** Hugging Face Spaces con SDK Docker.
+**Motivo:** gratuito senza carta di credito, HTTPS incluso, ed e l'ecosistema naturale per
+un modello ML. Fly.io richiede una carta anche restando nel tier gratuito.
+**Conseguenza accettata:** cold start di ~30 s invece di 2-5. Va mascherato nella UI con
+tre accorgimenti: ping a `/health` all'apertura della pagina (il risveglio parte mentre
+l'utente sceglie la difficolta), stato "si sta svegliando" esplicito oltre i 3 s, e
+possibilita di muovere subito perche le regole girano lato client. Il timeout del client
+va a 45 s sulla prima richiesta: il valore unico di 10 s suggerito dal piano fallirebbe
+sistematicamente al risveglio.
+**Reversibilita:** alta — cambia il Dockerfile e un URL.
+
+### 2026-08-17 — Nessun riuso dell'albero MCTS fra richieste
+**Contesto:** l'Appendice B prevede che il campo `session` abiliti il riuso dell'albero via
+cache LRU, stimando -30-40% di simulazioni.
+**Scelta:** non implementato. Il campo resta nello schema ma serve solo per rate limit e
+log.
+**Motivo:** `run_mcts` costruisce sempre una radice nuova e non accetta un parametro
+`root=`. Aggiungerlo significa modificare il cuore della ricerca che ha appena superato il
+Gate 5 e prodotto i 1964 Elo misurati. Il beneficio a 200 simulazioni e circa 0,15 s su
+0,38 — impercettibile per un umano — e lo Space si addormenta dopo inattivita, azzerando
+ogni cache proprio nel caso "utente che torna dopo la pausa", che e quello in cui servirebbe.
+**Alternative scartate:** implementarlo comunque per aderenza al piano. Il piano stesso
+dice di non ottimizzare senza misurare (regola permanente #4).
+**Reversibilita:** alta — il punto d'innesto e un parametro `root: Node | None = None` in
+`run_mcts`, se un domani i tempi lo giustificassero.

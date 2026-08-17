@@ -12,9 +12,13 @@ Two docs are the source of truth and should be read before major changes:
 
 Also check `docs/DECISIONS.md`, `docs/JOURNAL.md`, `docs/RESULTS.md` for accumulated decisions/history, and `docs/CHECKLIST.md`.
 
-## Current state (2026-08-16)
+For the web deployment (Stage 7), `docs/API_CONTRACT.md` is the binding agreement between
+the two halves — read it before touching either the Flutter UI or the FastAPI backend.
 
-**All gates are green. The project is complete through Stage 6.**
+## Current state (2026-08-17)
+
+**All gates are green through Stage 6. Stage 7 (web deployment) is in progress, split
+between two people.**
 
 | Gate | Status | Headline result |
 |---|---|---|
@@ -27,10 +31,33 @@ Also check `docs/DECISIONS.md`, `docs/JOURNAL.md`, `docs/RESULTS.md` for accumul
 | 5 mcts | green | 9 criteria; **+486 Elo ± 103** for MCTS over raw policy |
 | 6 rl-entry | green | 10 criteria; batching speedup **6.6×** |
 | 6 RL run | done | 25 iterations, 7 promotions, **+119 ± 51 Elo** over the supervised net |
+| 7 web | **in progress** | Flutter UI on GitHub Pages + FastAPI backend on HF Spaces — see below |
 
 **Measured strength: Elo 1964 ± 62** against Stockfish with `UCI_LimitStrength`
 (94.2% vs 1400, 64.2% vs 1800, 30.0% vs 2200 — the three estimates agree within 170 Elo).
 Reproduce with `scripts/run_elo_ladder.py`.
+
+### Stage 7 — who builds what
+
+The engine works but is only reachable from a terminal. Stage 7 makes it playable in a
+browser. **The work is split between two people and the halves are developed in
+parallel**, so before changing anything here, check which half you are in.
+
+| Half | Owner | Scope | Lives in |
+|---|---|---|---|
+| **Frontend** | Filippo (Windows) | Flutter Web UI, GitHub Pages deploy | `web/`, `.github/workflows/pages.yml` |
+| **Backend** | the macOS collaborator | FastAPI server, ONNX-free torch inference, HF Spaces deploy | `src/chessbot/api/`, `deploy/`, `requirements-serve.txt` |
+
+`docs/API_CONTRACT.md` is what keeps the two halves compatible: request/response shapes,
+error codes, CORS origins, and the `eval` sign convention. **Change that file first and
+tell the other person — never change one side's code and hope the other notices.**
+
+Neither half blocks the other. The UI is built against a `FakeEngine` that returns a
+random legal move, so the whole interface can be finished and deployed before the backend
+exists; the backend is verified with `curl` and pytest. Connecting them is a URL change.
+
+The three architectural deviations from Appendice B (torch instead of ONNX, HF Spaces
+instead of Fly.io, no MCTS tree reuse) are recorded in `docs/DECISIONS.md` with reasons.
 
 **The trained network exists.** `runs/supervised/best.pt` (144 MB, gitignored) —
 ResNet 8×128, 12.0M parameters, 12 epochs over 233.5M positions in 11.8 h on the RTX 3050.
@@ -145,6 +172,27 @@ python scripts/run_gate2_match.py --games 100         # baseline vs random match
 python scripts/preflight.py                           # run before any long GPU training session
 ```
 
+### Stage 7 — web (Flutter 3.41.2; `web/` is not a Python package)
+
+Frontend half. Requires Flutter on PATH; nothing here touches the Python venv.
+```bash
+cd web
+flutter pub get
+flutter analyze && flutter test              # must be clean before any deploy
+flutter run -d chrome                        # runs against FakeEngine by default
+flutter run -d chrome --dart-define=BACKEND_URL=http://127.0.0.1:8000   # against a real backend
+```
+Release build needs `--base-href` because Pages serves from a subpath — without it the
+page renders blank with no useful console error:
+```bash
+flutter build web --release \
+  --base-href /Resnet-Based-Chess-Bot-Fine-Tuned-with-RL/ \
+  --dart-define=BACKEND_URL=https://<space>.hf.space
+```
+
+Backend half (the macOS collaborator): start from `docs/API_CONTRACT.md`. `src/chessbot/api/`
+and `deploy/` do not exist yet — they are that half's deliverable.
+
 ## Architecture
 
 `src/chessbot/` — implementation status by module (mirrors the 5 phases/stages in PIPELINE.md):
@@ -154,16 +202,22 @@ python scripts/preflight.py                           # run before any long GPU 
 | `encoding/` | done | position → 19×8×8 tensor (`board.py`), move ↔ index [0,4672) AlphaZero 8×8×73 scheme (`moves.py`), stable cross-platform tensor hashing (`digest.py`) |
 | `baseline/` | done | minimax/negamax+alphabeta w/ quiescence & MVV-LVA (`search.py`), material+PST eval (`evaluation.py`), perft (`perft.py`), match runner w/ confidence intervals (`match.py`) — sanity-check baseline (~1300 Elo) |
 | `data/` | done | PGN parsing/streaming `.zst` (`pgn.py`), filters incl. Elo/time-control (`filters.py`), game-id-hash train/val/test split + FEN dedup (`split.py`), mmap'd binary shard storage (`storage.py`) |
-| `model/` | stub | ResNet + policy head + WDL value head |
-| `search/` | stub | MCTS PUCT, leaf batching w/ virtual loss |
-| `training/` | stub | supervised loop + Expert Iteration loop (same loss, label source changes) |
-| `eval/` | stub | match runner, Elo/SPRT, tactics suites |
-| `api/` | stub | FastAPI deploy endpoint |
+| `model/` | done | ResNet 8×128 + policy head + WDL value head (`network.py`), fp16-safe `masked_policy_logits` |
+| `search/` | done | MCTS PUCT (`mcts.py`), node/backup/virtual loss (`node.py`), cross-game batched self-play (`parallel.py`), opening book (`openings.py`) |
+| `training/` | done | supervised loop (`train.py` script), masked loss (`loss.py`), atomic checkpoints (`checkpoint.py`), SPRT gating (`gating.py`) |
+| `eval/` | done | match runner w/ confidence intervals; Elo ladder + RL-gain scripts in `scripts/` |
+| `api/` | **stub — backend half of Stage 7** | FastAPI deploy endpoint. Owned by the macOS collaborator; build against `docs/API_CONTRACT.md` |
 | `utils/` | partial | `seed.py` (global determinism); `configs/*.yaml` reference a pydantic schema at `utils/config.py` that does not exist yet |
+
+The `model/`/`search/`/`training/`/`eval/` rows said "stub" until 2026-08-17; that was
+stale bookkeeping, not a real gap — those modules produced every measured result above.
 
 Config: plain YAML validated by pydantic, not Hydra. `configs/default.yaml` is the single source of truth (paths, encoding, data, model, train, search, eval, logging); `configs/rl.yaml` extends it for the Expert Iteration phase (parallel self-play games, Dirichlet noise, gating/SPRT thresholds, hard stop criteria).
 
-Stages gate progression (PIPELINE.md): 0 setup → 0-bis macOS/MPS parity → 1 encoding → 2 baseline → 3 data → 4 supervised train → 5 MCTS ("bot funzionante") → 6 RL/Expert Iteration.
+Stages gate progression (PIPELINE.md): 0 setup → 0-bis macOS/MPS parity → 1 encoding → 2 baseline → 3 data → 4 supervised train → 5 MCTS ("bot funzionante") → 6 RL/Expert Iteration → 7 web deployment (split: Flutter UI / FastAPI backend).
+
+`web/` at the repo root holds the Flutter app — deliberately outside `src/`, which is the
+Python package (`pyproject.toml` sets `where = ["src"]`).
 
 ## Critical invariants
 

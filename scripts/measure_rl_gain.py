@@ -26,7 +26,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import random
 import sys
 import time
 from datetime import UTC, datetime
@@ -98,7 +97,6 @@ def main() -> int:
     book_path = ROOT / "data" / "books" / "openings.json"
     openings = load_book(book_path) if book_path.exists() else []
     rng = np.random.default_rng(args.seed)
-    py_rng = random.Random(args.seed)
 
     result = MatchResult()
     started = time.perf_counter()
