@@ -8,6 +8,11 @@ pytest-cov==7.1.0
 pytest-xdist==3.8.0
 hypothesis==6.140.4
 
+# --- API (Stadio 7 backend) ---
+fastapi==0.141.1
+uvicorn[standard]==0.52.1
+httpx==0.28.1
+
 # --- Qualita del codice (livello L1) ---
 ruff==0.14.3
 mypy==1.18.2

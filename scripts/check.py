@@ -925,6 +925,34 @@ def _check_opening_book() -> Result:
     )
 
 
+def check_api_gate() -> list[Result]:
+    """Gate 7-backend (§docs/API_CONTRACT.md, Stadio 7).
+
+    A differenza degli altri gate, qui non ci sono criteri numerici da
+    misurare su una macchina reale (Elo, dataset...): il gate e la suite di
+    `tests/unit/test_api.py`, che copre esattamente i criteri di
+    PIPELINE.md — niente 500 su FEN invalido, /health reattivo durante una
+    ricerca lunga, CORS, segno di eval — con un evaluator finto, senza
+    caricare pesi veri.
+    """
+    mod = SRC / "chessbot" / "api"
+    if not any(p.name != "__init__.py" for p in mod.glob("*.py")):
+        return [Result("gate api", "SKIP", "src/chessbot/api/ non ancora implementato")]
+
+    test_file = ROOT / "tests" / "unit" / "test_api.py"
+    if not test_file.exists():
+        return [
+            Result(
+                "gate api",
+                "FAIL",
+                "codice presente in api/ ma tests/unit/test_api.py assente — regola #6",
+            )
+        ]
+
+    p = run_module("pytest", "-q", "--no-header", str(test_file))
+    return [Result("gate api", "PASS" if p.returncode == 0 else "FAIL", p.stdout.strip()[-1000:])]
+
+
 def _stage_placeholder(stage: str, module: str, tests_dir: str) -> list[Result]:
     """Gate delle fasi successive: SKIP finche il codice non esiste."""
     mod_path = SRC / "chessbot" / module
@@ -972,6 +1000,7 @@ STAGES = {
     "train": check_train_gate,
     "mcts": check_mcts_gate,
     "rl-entry": check_rl_entry_gate,
+    "api": check_api_gate,
 }
 
 

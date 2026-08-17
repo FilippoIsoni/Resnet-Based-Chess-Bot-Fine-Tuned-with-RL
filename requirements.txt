@@ -8,7 +8,11 @@
 
 # --- Nucleo ---
 chess==1.11.2
-numpy==2.2.6
+# < 2: torch 2.2.x e compilato contro l'ABI C di NumPy 1.x. Con NumPy 2.x
+# `torch.from_numpy` solleva "RuntimeError: Numpy is not available" — non
+# all'import, solo alla prima vera conversione, quindi il sintomo emerge
+# tardi (self-play, training) invece che subito.
+numpy==1.26.4
 pyyaml==6.0.2
 pydantic==2.13.4
 tqdm==4.70.0
