@@ -268,6 +268,21 @@ def test_cors_localhost_qualsiasi_porta(client: TestClient) -> None:
     assert resp.headers.get("access-control-allow-origin") == "http://localhost:54321"
 
 
+def test_cors_anche_da_127_0_0_1(client: TestClient) -> None:
+    """`127.0.0.1` va autorizzato quanto `localhost`.
+
+    Sono la stessa macchina ma **due origini diverse** per il browser: con solo
+    `localhost` in elenco, servire la UI da `http://127.0.0.1:8080` fa fallire
+    ogni chiamata con un errore CORS, e l'interfaccia dice "impossibile
+    raggiungere il motore" mentre il server risponde benissimo.
+
+    Bug vero, trovato caricando la UI compilata in un browser: i test qui
+    passavano tutti perche provavano solo `localhost`.
+    """
+    resp = client.get("/health", headers={"Origin": "http://127.0.0.1:8080"})
+    assert resp.headers.get("access-control-allow-origin") == "http://127.0.0.1:8080"
+
+
 # --------------------------------------------------------------------------------------
 # Concorrenza — il criterio piu delicato del Gate 7-backend
 # --------------------------------------------------------------------------------------

@@ -61,9 +61,19 @@ const TextStyle monoLabel = TextStyle(
 /// The base colour of the board.
 ///
 /// The library takes **one** colour and derives both square shades from it by
-/// lightening: light squares = colour + 0.5 lightness, dark = + 0.1. So this
-/// has to be a very dark tone — a mid grey here would produce a light board.
-const Color boardBase = Color(0xFF2B2620);
+/// lightening in HSL: light squares = colour + 0.5 lightness, dark = + 0.1.
+/// That +0.5 is a large, additive jump, so the light squares always land
+/// fairly bright — there is no base dark enough to avoid it.
+///
+/// What can be controlled is the *hue*. A warm base such as `#2B2620` yields
+/// `#B2A698` and `#484036`: the classic beige-and-brown board, which fights a
+/// dark interface. A neutral grey yields `#929292` and `#2C2C2C`, which sits
+/// with the rest of the palette while keeping the two shades far enough apart
+/// to read as a chessboard.
+///
+/// Checked against the library's own conversion rather than guessed, after the
+/// board turned out brown in a real browser despite this value being passed.
+const Color boardBase = Color(0xFF121212);
 
 ThemeData buildDarkTheme() {
   final scheme = ColorScheme.fromSeed(

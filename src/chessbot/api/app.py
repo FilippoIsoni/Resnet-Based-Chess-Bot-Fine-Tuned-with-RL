@@ -28,7 +28,13 @@ from .schemas import HealthResponse, MoveRequest, MoveResponse
 # per lo sviluppo. Mai "*" insieme a credenziali (qui non servono comunque) —
 # trappola documentata in docs/API_CONTRACT.md.
 ALLOWED_ORIGINS = ["https://filippoisoni.github.io"]
-LOCALHOST_ORIGIN_REGEX = r"^http://localhost:\d+$"
+# `localhost` e `127.0.0.1` sono la stessa macchina ma **due origini diverse**
+# per la politica di sicurezza del browser: autorizzarne una sola fa fallire
+# meta delle prove in locale con un errore CORS, e la UI mostra "impossibile
+# raggiungere il motore" mentre il server e li che risponde.
+# Verificato: servendo la UI da 127.0.0.1:8080 con solo `localhost` in elenco,
+# la chiamata a /health veniva bloccata.
+LOCALHOST_ORIGIN_REGEX = r"^http://(localhost|127\.0\.0\.1):\d+$"
 
 EngineDep = Annotated[EngineState, Depends(get_engine_state)]
 
