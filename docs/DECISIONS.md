@@ -252,3 +252,52 @@ ogni cache proprio nel caso "utente che torna dopo la pausa", che e quello in cu
 dice di non ottimizzare senza misurare (regola permanente #4).
 **Reversibilita:** alta — il punto d'innesto e un parametro `root: Node | None = None` in
 `run_mcts`, se un domani i tempi lo giustificassero.
+
+### 2026-08-18 — Marcia indietro su ONNX: si torna a quanto prescriveva il piano
+**Contesto:** il 2026-08-17 avevamo scartato ONNX per servire con torch, perche
+su Hugging Face Spaces il peso dell'immagine non era un vincolo. Quella premessa
+e caduta: da luglio 2026 HF richiede un piano PRO (9 $/mese) per gli Space
+Docker e Gradio, e restano gratuiti solo gli Space *Static*, che non eseguono
+Python.
+**Misura che ha deciso:** il backend con torch occupa **608 MB** di RSS, di cui
+489 solo per `import torch`. Praticamente ogni piano gratuito rimasto si ferma a
+512 MB (Render, Koyeb, SnapDeploy), quindi il servizio non parte proprio.
+Servito da onnxruntime lo stesso motore occupa **150 MB**: quattro volte meno, e
+il problema di hosting sparisce senza pagare nulla.
+**Scelta:** export ONNX come percorso primario (`scripts/export_onnx.py`,
+`api/onnx_evaluator.py`), con ripiego automatico su torch quando il `.onnx` non
+c'e — il caso normale in sviluppo, dato che e un artefatto di build gitignored.
+**Parita verificata**, come il piano chiede: scarto massimo **5,1e-07** contro
+una soglia di 1e-3, e mossa preferita identica su tutte le posizioni di prova.
+Il controllo e automatizzato in `tests/unit/test_onnx_parity.py`, non fatto una
+volta a mano: un export verificato a mano e un export che diverge in silenzio
+alla prossima modifica della rete.
+**Conseguenza non prevista:** ridurre la memoria ha richiesto di rendere pigro
+l'import di torch anche in `search/mcts.py`, dove serviva solo a `Evaluator` ma
+veniva pagato da chiunque importasse `chessbot.search`. Il Gate 5 resta verde
+(stessi +486 ± 103 Elo), quindi il refactor non ha toccato il comportamento.
+**Alternative scartate:** pagare i 9 $/mese (funziona, ma il progetto e
+didattico e la soluzione gratuita esisteva); Northflank, unico gratuito con 1 GB
+e senza sospensione, scartato perche chiede comunque la carta per la verifica.
+**Reversibilita:** alta — basta non generare il `.onnx` e il backend riprende a
+servire con torch, senza modifiche al codice.
+
+### 2026-08-18 — Cache di mypy disattivata nel gate
+**Contesto:** mypy 1.18.2 crasha con `NotImplementedError: Cannot serialize
+TypeGuardedType instance` mentre **scrive** la cache, su qualunque modulo che
+importi torch. Il gate L1 risultava rosso senza dire niente sul codice: un
+guasto dello strumento travestito da errore del progetto. Il crash precede le
+modifiche di oggi — verificato facendo stash e rilanciando su main pulito.
+**Scelta:** `check_mypy()` passa `--cache-dir=os.devnull`.
+**Motivo:** e l'unica cosa che funziona. `--no-incremental` e
+`incremental = false` lasciano comunque scrivere la cache, e cosi una directory
+temporanea vera. Solo un percorso non scrivibile la impedisce, e a quel punto
+mypy prosegue e riporta i risultati normalmente.
+`os.devnull` e non `/dev/null` a mano: quest'ultimo funziona da Git Bash, che lo
+traduce, ma non da PowerShell.
+**Cosa si perde:** solo il riuso fra esecuzioni, una decina di secondi in piu su
+`src`. Nessun controllo in meno — e la stessa analisi.
+**Nota:** il crash mascherava **3 errori di tipo veri** in `onnx_evaluator.py`
+(una variabile riusata con due tipi diversi), corretti. Il costo di un gate
+rotto non e il tempo perso a ripararlo: e quello che nasconde mentre e rotto.
+**Reversibilita:** alta, da togliere quando mypy corregge il bug.

@@ -69,7 +69,7 @@ def create_app() -> FastAPI:
     async def health(engine: EngineDep) -> HealthResponse:
         return HealthResponse(
             model_loaded=engine.model_loaded,
-            device=str(engine.device),
+            device=engine.device,
             uptime_s=time.monotonic() - engine.start_time,
         )
 

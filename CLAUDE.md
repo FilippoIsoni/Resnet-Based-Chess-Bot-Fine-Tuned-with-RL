@@ -15,10 +15,10 @@ Also check `docs/DECISIONS.md`, `docs/JOURNAL.md`, `docs/RESULTS.md` for accumul
 For the web deployment (Stage 7), `docs/API_CONTRACT.md` is the binding agreement between
 the two halves — read it before touching either the Flutter UI or the FastAPI backend.
 
-## Current state (2026-08-17)
+## Current state (2026-08-18)
 
-**All gates are green through Stage 6. Stage 7 (web deployment) is in progress, split
-between two people.**
+**All gates are green through Stage 7. Both halves of the web deployment are built,
+merged and verified locally; what remains is publishing them (`deploy/HOSTING.md`).**
 
 | Gate | Status | Headline result |
 |---|---|---|
@@ -31,7 +31,8 @@ between two people.**
 | 5 mcts | green | 9 criteria; **+486 Elo ± 103** for MCTS over raw policy |
 | 6 rl-entry | green | 10 criteria; batching speedup **6.6×** |
 | 6 RL run | done | 25 iterations, 7 promotions, **+119 ± 51 Elo** over the supervised net |
-| 7 web | **in progress** | Flutter UI on GitHub Pages + FastAPI backend on HF Spaces — see below |
+| 7 api | green | 2 criteria; API tests + ONNX parity (worst gap **5.1e-07** vs a 1e-3 threshold) |
+| 7 web | built, not published | Flutter UI (31 tests) + FastAPI backend on ONNX, **150 MB** RSS — see below |
 
 **Measured strength: Elo 1964 ± 62** against Stockfish with `UCI_LimitStrength`
 (94.2% vs 1400, 64.2% vs 1800, 30.0% vs 2200 — the three estimates agree within 170 Elo).
@@ -46,18 +47,37 @@ parallel**, so before changing anything here, check which half you are in.
 | Half | Owner | Scope | Lives in |
 |---|---|---|---|
 | **Frontend** | Filippo (Windows) | Flutter Web UI, GitHub Pages deploy | `web/`, `.github/workflows/pages.yml` |
-| **Backend** | the macOS collaborator | FastAPI server, ONNX-free torch inference, HF Spaces deploy | `src/chessbot/api/`, `deploy/`, `requirements-serve.txt` |
+| **Backend** | the macOS collaborator | FastAPI server, ONNX inference, deploy | `src/chessbot/api/`, `deploy/`, `requirements-serve.txt` |
+
+Both halves are built and merged. The remaining step is publishing — see
+`deploy/HOSTING.md`.
 
 `docs/API_CONTRACT.md` is what keeps the two halves compatible: request/response shapes,
 error codes, CORS origins, and the `eval` sign convention. **Change that file first and
 tell the other person — never change one side's code and hope the other notices.**
 
-Neither half blocks the other. The UI is built against a `FakeEngine` that returns a
-random legal move, so the whole interface can be finished and deployed before the backend
-exists; the backend is verified with `curl` and pytest. Connecting them is a URL change.
+The halves were developed independently: the UI against a `FakeEngine` returning random
+legal moves, the backend against `curl` and pytest. They are now connected — the UI always
+talks to `HttpEngine`, and `FakeEngine` survives only in `web/test/` so widget tests can
+mount the app without a server.
 
-The three architectural deviations from Appendice B (torch instead of ONNX, HF Spaces
-instead of Fly.io, no MCTS tree reuse) are recorded in `docs/DECISIONS.md` with reasons.
+**Serving runs on ONNX, not torch.** Measured: 150 MB RSS versus 608, because
+`import torch` alone costs 489 MB and every remaining free hosting tier caps at 512 MB.
+Hugging Face moved Docker Spaces behind a paid plan in July 2026, which is what forced
+the reversal — the 2026-08-17 decision to skip ONNX assumed HF was free. Numerical parity
+is enforced by `tests/unit/test_onnx_parity.py` (worst gap 5.1e-07 against a 1e-3
+threshold) and by the `api` gate, not checked once by hand.
+
+Generate the model with `python scripts/export_onnx.py`; the backend picks it up
+automatically and falls back to torch when it is absent, which is the normal case in
+development since `.onnx` is a gitignored build artifact.
+
+Reducing memory required deferring the torch import inside `search/mcts.py`, where it was
+only ever used by `Evaluator` but was paid by anything importing `chessbot.search`. Gate 5
+still green (same +486 ± 103 Elo), so behaviour is unchanged.
+
+Deviations from Appendice B are recorded in `docs/DECISIONS.md` with reasons: ONNX (kept,
+after a reversal), Render instead of Fly.io/HF Spaces, and no MCTS tree reuse.
 
 **The trained network exists.** `runs/supervised/best.pt` (144 MB, gitignored) —
 ResNet 8×128, 12.0M parameters, 12 epochs over 233.5M positions in 11.8 h on the RTX 3050.
@@ -190,8 +210,14 @@ flutter build web --release \
   --dart-define=BACKEND_URL=https://<space>.hf.space
 ```
 
-Backend half (the macOS collaborator): start from `docs/API_CONTRACT.md`. `src/chessbot/api/`
-and `deploy/` do not exist yet — they are that half's deliverable.
+Backend, and publishing both halves:
+```bash
+python scripts/export_onnx.py                          # ONNX model + parity check
+python -m uvicorn chessbot.api.app:app --port 8000     # local backend
+python scripts/check.py --stage api                    # gate: API tests + ONNX parity
+```
+`deploy/HOSTING.md` is the step-by-step for putting it online (Render + GitHub Pages,
+both free, no card).
 
 ## Architecture
 
@@ -206,7 +232,7 @@ and `deploy/` do not exist yet — they are that half's deliverable.
 | `search/` | done | MCTS PUCT (`mcts.py`), node/backup/virtual loss (`node.py`), cross-game batched self-play (`parallel.py`), opening book (`openings.py`) |
 | `training/` | done | supervised loop (`train.py` script), masked loss (`loss.py`), atomic checkpoints (`checkpoint.py`), SPRT gating (`gating.py`) |
 | `eval/` | done | match runner w/ confidence intervals; Elo ladder + RL-gain scripts in `scripts/` |
-| `api/` | **stub — backend half of Stage 7** | FastAPI deploy endpoint. Owned by the macOS collaborator; build against `docs/API_CONTRACT.md` |
+| `api/` | done | FastAPI deploy endpoint (`app.py`), ONNX evaluator that needs no torch (`onnx_evaluator.py`), model loading with ONNX→RL→supervised fallback (`engine.py`), per-IP rate limit (`rate_limit.py`) |
 | `utils/` | partial | `seed.py` (global determinism); `configs/*.yaml` reference a pydantic schema at `utils/config.py` that does not exist yet |
 
 The `model/`/`search/`/`training/`/`eval/` rows said "stub" until 2026-08-17; that was

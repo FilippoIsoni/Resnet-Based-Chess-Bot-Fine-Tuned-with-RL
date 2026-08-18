@@ -15,13 +15,13 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-import torch
-
-from chessbot.model.network import ChessNet, NetworkConfig
 from chessbot.search import Evaluator, SearchConfig
-from chessbot.training.checkpoint import load_checkpoint
 
 from .rate_limit import InMemoryRateLimiter
+
+# torch NON si importa qui. Vale la stessa ragione documentata in
+# `search/mcts.py`: costa 489 MB di RSS, e servendo ONNX non serve affatto.
+# Il ripiego su torch lo importa dentro `load_model`, dove viene usato.
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +29,7 @@ ROOT = Path(__file__).resolve().parents[3]
 
 DEFAULT_RL_CHECKPOINT = ROOT / "runs" / "rl" / "main" / "state.pt"
 DEFAULT_SUPERVISED_CHECKPOINT = ROOT / "runs" / "supervised" / "best.pt"
+DEFAULT_ONNX_MODEL = ROOT / "runs" / "onnx" / "chessbot.onnx"
 
 
 def _hard_simulations() -> int:
@@ -54,7 +55,9 @@ class EngineState:
     toccare `app.state`."""
 
     evaluator: Evaluator | None
-    device: torch.device
+    device: str
+    """Sempre "cpu" in produzione. Stringa e non `torch.device` perche questo
+    modulo non importa torch (vedi la nota sugli import)."""
     model_loaded: bool
     start_time: float
     rate_limiter: InMemoryRateLimiter
@@ -62,6 +65,10 @@ class EngineState:
     """Serializza le ricerche MCTS: letto/scritto senza `await` in mezzo,
     quindi atomico nel modello a singolo event loop di asyncio. Presuppone
     un solo worker Uvicorn."""
+
+
+def _onnx_model_path() -> Path:
+    return Path(os.environ.get("CHESSBOT_ONNX_MODEL", str(DEFAULT_ONNX_MODEL)))
 
 
 def _rl_checkpoint_path() -> Path:
@@ -74,38 +81,75 @@ def _supervised_checkpoint_path() -> Path:
     )
 
 
-def load_model(device: torch.device | None = None) -> tuple[Evaluator | None, torch.device]:
-    """Carica i pesi in ordine di preferenza: RL -> supervisionato -> nessuno.
+def load_model(device: str | None = None) -> tuple[Evaluator | None, str]:
+    """Carica i pesi in ordine di preferenza: ONNX -> RL -> supervisionato -> nessuno.
 
     Non solleva mai: un checkpoint assente o non caricabile e un motivo per
     restituire `evaluator=None`, non per far fallire l'avvio del processo.
     `/health` deve poter rispondere `model_loaded: false` invece di crashare
     (entrambi i checkpoint sono gitignored e assenti in un checkout pulito).
+
+    **ONNX per primo, quando c'e.** Il servizio con torch occupa 608 MB di RSS,
+    contro i 100 della stessa rete servita da onnxruntime: quasi tutti i piani
+    di hosting gratuiti si fermano a 512 MB, quindi la differenza decide se il
+    backend sta online oppure no. La parita numerica fra i due percorsi e
+    verificata da `tests/unit/test_onnx_parity.py`.
+
+    Il ripiego su torch resta perche in sviluppo il `.onnx` di solito non c'e
+    (si rigenera da un checkpoint, entrambi gitignored) e perche il tipo di
+    ritorno annotato `Evaluator` copre entrambi: `OnnxEvaluator` espone la
+    stessa `evaluate()` e l'MCTS non distingue i due casi.
     """
-    resolved_device = device or torch.device(os.environ.get("CHESSBOT_DEVICE", "cpu"))
+    resolved_device = device or os.environ.get("CHESSBOT_DEVICE", "cpu")
+
+    onnx_path = _onnx_model_path()
+    if onnx_path.exists():
+        try:
+            from .onnx_evaluator import OnnxEvaluator
+
+            logger.info("motore servito da ONNX: %s", onnx_path)
+            # `type: ignore`: OnnxEvaluator non eredita da Evaluator (non deve
+            # importare torch), ma ne implementa l'unico metodo che la ricerca
+            # usa. La compatibilita e verificata dai test di parita.
+            return OnnxEvaluator(onnx_path), resolved_device  # type: ignore[return-value]
+        except Exception:
+            logger.exception("modello ONNX presente ma non caricabile: %s", onnx_path)
 
     # La rete si costruisce solo se c'e davvero un checkpoint da caricarci
     # dentro: nel caso comune di sviluppo (nessun checkpoint su disco, entrambi
     # gitignored) questo rende load_model() pressoche istantaneo, che e anche
     # cio che tiene i test `fast` veloci senza bisogno di un caso speciale.
     rl_path = _rl_checkpoint_path()
-    if rl_path.exists():
-        try:
-            net = ChessNet(NetworkConfig()).to(resolved_device)
-            payload = torch.load(rl_path, map_location=resolved_device, weights_only=False)
-            net.load_state_dict(payload["champion"])
-            return Evaluator(net, resolved_device), resolved_device
-        except Exception:
-            logger.exception("checkpoint RL presente ma non caricabile: %s", rl_path)
-
     sup_path = _supervised_checkpoint_path()
-    if sup_path.exists():
-        try:
-            net = ChessNet(NetworkConfig()).to(resolved_device)
-            load_checkpoint(sup_path, model=net, restore_rng=False, map_location=resolved_device)
-            return Evaluator(net, resolved_device), resolved_device
-        except Exception:
-            logger.exception("checkpoint supervisionato presente ma non caricabile: %s", sup_path)
+
+    if rl_path.exists() or sup_path.exists():
+        # Import qui e non in cima: si paga solo quando si serve davvero con
+        # torch, cioe in sviluppo o se manca il modello ONNX.
+        import torch
+
+        from chessbot.model.network import ChessNet, NetworkConfig
+        from chessbot.training.checkpoint import load_checkpoint
+
+        torch_device = torch.device(resolved_device)
+
+        if rl_path.exists():
+            try:
+                net = ChessNet(NetworkConfig()).to(torch_device)
+                payload = torch.load(rl_path, map_location=torch_device, weights_only=False)
+                net.load_state_dict(payload["champion"])
+                return Evaluator(net, torch_device), resolved_device
+            except Exception:
+                logger.exception("checkpoint RL presente ma non caricabile: %s", rl_path)
+
+        if sup_path.exists():
+            try:
+                net = ChessNet(NetworkConfig()).to(torch_device)
+                load_checkpoint(sup_path, model=net, restore_rng=False, map_location=torch_device)
+                return Evaluator(net, torch_device), resolved_device
+            except Exception:
+                logger.exception(
+                    "checkpoint supervisionato presente ma non caricabile: %s", sup_path
+                )
 
     logger.warning(
         "nessun checkpoint disponibile (%s, %s) — model_loaded restera False", rl_path, sup_path

@@ -1,178 +1,153 @@
 # Pubblicare il bot online
 
 Guida operativa: dal codice sul portatile a un indirizzo che chiunque puo aprire.
+Tutto gratuito, senza carta di credito.
 
 Ci sono **due cose separate** da pubblicare, in questo ordine:
 
 ```
-  1. il motore   -> Hugging Face Spaces   (Python, ha bisogno di un server)
-  2. la UI       -> GitHub Pages          (file statici, li serve gia GitHub)
+  1. il motore   -> Render        (Python, ha bisogno di un server)
+  2. la UI       -> GitHub Pages  (file statici, li serve gia GitHub)
 ```
 
 Il motore va per primo: la UI ha bisogno del suo indirizzo per essere costruita.
 
-I pesi (`runs/rl/main/state.pt`, 48 MB) non sono in git e non possono esserci — il gate
-`check_no_large_files` li rifiuta. Vanno caricati a parte, ed e il passaggio che la
-maggior parte delle guide salta. E il punto 2 qui sotto.
+## Perche Render e non Hugging Face
+
+La guida diceva Hugging Face Spaces. **Da luglio 2026 non e piu gratuito** per quello che
+serve a noi: gli Space Docker e Gradio richiedono un piano PRO da 9 $/mese, e restano
+gratuiti solo gli Space *Static*, che servono file e non eseguono Python.
+
+Fra i piani gratuiti rimasti, quasi tutti si fermano a **512 MB di RAM**. Il backend con
+PyTorch ne occupa **608**, quindi non parte proprio: va in errore di memoria prima ancora
+di caricare i pesi. Per questo il primo passaggio della guida e convertire la rete in
+ONNX, che porta il consumo a **150 MB** — con le stesse identiche risposte, verificate
+automaticamente.
+
+| | RAM | Carta | Sospensione |
+|---|---|---|---|
+| **Render** | 512 MB | no | dopo 15 min, risveglio ~1 min |
+| Koyeb | 512 MB | no | variabile |
+| Northflank | 1 GB | **si** | mai |
+| HF Spaces Docker | 16 GB | no | 9 $/mese |
+
+Render e Koyeb vanno entrambi bene. La guida usa Render perche il risveglio e piu rapido.
 
 ---
 
-## 1. Account Hugging Face
+## 1. Convertire la rete in ONNX
 
-Serve solo un account gratuito, senza carta di credito: https://huggingface.co/join
+```bash
+python scripts/export_onnx.py
+```
 
-L'unica cosa che conta e il **nome utente**, perche finisce nell'indirizzo del servizio.
-Nel seguito lo chiamo `TUONOME`.
+Produce `runs/onnx/chessbot.onnx` piu un `chessbot.onnx.data` di ~46 MB — **i due file
+vanno sempre insieme**, il primo da solo e un guscio vuoto.
+
+Lo script non si limita a convertire: confronta le risposte delle due versioni su cinque
+posizioni diverse e si rifiuta di dichiarare valido un modello che diverge. La verifica
+misurata e uno scarto di 5,1e-07 contro una soglia di 1e-3, con la stessa mossa preferita
+ovunque.
+
+Il backend usa il modello ONNX in automatico appena lo trova. Per accertarsene:
+
+```bash
+python -m uvicorn chessbot.api.app:app --port 8000
+curl http://127.0.0.1:8000/health      # deve dire "model_loaded": true
+```
 
 ---
 
 ## 2. Caricare i pesi
 
-I pesi vivono in un **repository modello**, separato dallo Space. E il modo previsto
-dalla piattaforma: un repo modello e pensato per file grossi, uno Space per il codice.
+I 46 MB del modello non stanno in git — il gate `check_no_large_files` rifiuta `.onnx` per
+estensione. Vanno pubblicati a parte, e il posto piu comodo e una **release GitHub**,
+perche il repo ce l'hai gia.
 
-Dal browser:
+1. sul repository -> **Releases** -> **Draft a new release**
+2. tag: `v0.2-onnx`, titolo a piacere
+3. trascina **entrambi** i file: `chessbot.onnx` e `chessbot.onnx.data`
+4. **Publish release**
 
-1. https://huggingface.co/new — sezione **Model** (non Space, non Dataset)
-2. nome: `chessbot-rl`, visibilita **Public**
-3. una volta creato: **Files** -> **Add file** -> **Upload files**
-4. trascina `runs/rl/main/state.pt` e conferma con **Commit changes**
+Prendi nota degli indirizzi di download, nella forma:
 
-Sono 48 MB: un paio di minuti con una connessione normale.
-
-Il repo ora e `TUONOME/chessbot-rl` e il file e scaricabile senza token, perche pubblico.
-
-> **Se preferisci tenerlo privato** funziona lo stesso, ma serve un token: Settings ->
-> Access Tokens -> New token (permesso *read*), da mettere poi fra i Secrets dello Space
-> come `HF_TOKEN`. Pubblico e piu semplice e non espone nulla di sensibile: sono pesi di
-> una rete, non dati.
-
----
-
-## 3. Creare lo Space
-
-1. https://huggingface.co/new-space
-2. **Space name**: `chessbot-api`
-3. **License**: quella che preferisci (MIT va bene)
-4. **SDK**: **Docker** -> *Blank* (non Gradio, non Streamlit)
-5. **Hardware**: *CPU basic* — gratuito, 2 vCPU, 16 GB
-6. **Public**
-7. **Create Space**
-
-L'indirizzo sara `https://TUONOME-chessbot-api.hf.space`. Segnatelo: serve al punto 6.
-
----
-
-## 4. Caricare il backend nello Space
-
-Uno Space e un repository git. Il modo piu semplice e clonarlo e copiarci i file:
-
-```bash
-# fuori dalla cartella del progetto, per non annidare due repo
-cd ~
-git clone https://huggingface.co/spaces/TUONOME/chessbot-api
-cd chessbot-api
 ```
-
-Al primo push HF chiede le credenziali: nome utente e un **token con permesso write**
-(Settings -> Access Tokens), non la password dell'account.
-
-Ora copia dal progetto quello che serve al server. Da `chessbot-api/`:
-
-```bash
-PROG=~/Desktop/Chess-bot/chess-bot     # adatta il percorso
-
-cp $PROG/deploy/Dockerfile          .
-cp $PROG/deploy/README.md           .
-cp $PROG/requirements-serve.txt     .
-cp $PROG/pyproject.toml             .
-cp -r $PROG/src                     .
-```
-
-**Il `Dockerfile` va adattato in un punto.** Quello nel progetto si aspetta i pesi in
-`runs/`, che nello Space non esistono. Sostituisci la riga `COPY runs/ /app/runs/` e le
-variabili d'ambiente sotto con:
-
-```dockerfile
-# I pesi arrivano dal repo modello al primo avvio. hf_hub_download li mette in
-# cache su disco: al riavvio a caldo non li riscarica.
-ENV HF_HOME=/tmp/hf \
-    CHESSBOT_HF_REPO=TUONOME/chessbot-rl \
-    CHESSBOT_DEVICE=cpu \
-    CHESSBOT_HARD_SIMULATIONS=800
-```
-
-e aggiungi `huggingface_hub==0.36.0` a `requirements-serve.txt`.
-
-Poi in `src/chessbot/api/engine.py`, nella funzione `load_model`, il percorso del
-checkpoint va risolto scaricandolo quando non e sul disco:
-
-```python
-def _rl_checkpoint_path() -> Path:
-    explicit = os.environ.get("CHESSBOT_RL_CHECKPOINT")
-    if explicit:
-        return Path(explicit)
-
-    repo = os.environ.get("CHESSBOT_HF_REPO")
-    if repo:
-        from huggingface_hub import hf_hub_download
-        return Path(hf_hub_download(repo_id=repo, filename="state.pt"))
-
-    return DEFAULT_RL_CHECKPOINT
-```
-
-In locale niente cambia: `CHESSBOT_HF_REPO` non e impostata e vale il percorso di prima.
-
-Infine:
-
-```bash
-git add -A
-git commit -m "Backend chessbot"
-git push
+https://github.com/TUONOME/REPO/releases/download/v0.2-onnx/chessbot.onnx
+https://github.com/TUONOME/REPO/releases/download/v0.2-onnx/chessbot.onnx.data
 ```
 
 ---
 
-## 5. Verificare che funzioni
+## 3. Creare il servizio su Render
 
-La scheda **Logs** dello Space mostra la build. La prima volta sono **10-15 minuti**:
-scarica torch, che e grosso. Le successive sono piu rapide grazie alla cache.
+Serve un account gratuito su https://render.com (registrazione con GitHub, nessuna carta).
 
-Quando lo stato diventa **Running**:
+1. **New** -> **Web Service** -> collega il repository
+2. **Language**: `Python 3`
+3. **Build Command**:
+   ```
+   pip install torch --index-url https://download.pytorch.org/whl/cpu --no-deps &&
+   pip install -r requirements-serve.txt && pip install -e . --no-deps &&
+   mkdir -p runs/onnx &&
+   curl -sL -o runs/onnx/chessbot.onnx https://github.com/TUONOME/REPO/releases/download/v0.2-onnx/chessbot.onnx &&
+   curl -sL -o runs/onnx/chessbot.onnx.data https://github.com/TUONOME/REPO/releases/download/v0.2-onnx/chessbot.onnx.data
+   ```
+   (tutto su una riga sola; adatta `TUONOME/REPO`)
+4. **Start Command**:
+   ```
+   uvicorn chessbot.api.app:app --host 0.0.0.0 --port $PORT --workers 1
+   ```
+   `--workers 1` non e negoziabile: il rate limiter e il flag di occupato vivono in
+   memoria e valgono solo dentro un processo.
+5. **Instance Type**: `Free`
+6. **Create Web Service**
+
+> **Perche installare torch se serviamo ONNX?** Non serve. `requirements-serve.txt` non lo
+> elenca e il backend non lo importa quando trova il `.onnx`. Se il build risulta troppo
+> lento, togli pure la prima riga del Build Command: serve solo come rete di sicurezza nel
+> caso il download del modello fallisca e si debba ripiegare sui checkpoint.
+
+L'indirizzo sara `https://<nome-servizio>.onrender.com`. Segnatelo per il punto 5.
+
+---
+
+## 4. Verificare
+
+Il primo build richiede qualche minuto. Quando lo stato e **Live**:
 
 ```bash
-curl https://TUONOME-chessbot-api.hf.space/health
+curl https://<nome-servizio>.onrender.com/health
 ```
 
-Deve rispondere `"model_loaded": true`. Se dice `false`, i pesi non sono stati trovati:
-controlla `CHESSBOT_HF_REPO` e che il repo modello sia pubblico.
+Deve rispondere `"model_loaded": true`. Se dice `false`, il download del modello e fallito:
+controlla i log del build e che gli URL della release siano giusti.
 
 Poi una mossa vera:
 
 ```bash
-curl -X POST https://TUONOME-chessbot-api.hf.space/move \
+curl -X POST https://<nome-servizio>.onrender.com/move \
   -H "Content-Type: application/json" \
   -d '{"fen":"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1","level":"medium"}'
 ```
 
-**Cronometra i tre livelli** — e l'unico numero che qui non si puo prevedere. In locale
-sono 0,2 / 0,6 / 2,3 s; su HF aspettati 2-4 volte tanto. Se `hard` supera gli 8 secondi,
-abbassalo senza toccare il codice: Settings -> Variables -> `CHESSBOT_HARD_SIMULATIONS`
-= `400`. La leva esiste apposta.
+**Cronometra i tre livelli** — e l'unico numero che qui non si puo prevedere. In locale con
+ONNX sono 0,15 / 0,44 / 1,7 s; su hardware condiviso aspettati 2-4 volte tanto. Se `hard`
+supera gli 8 secondi, abbassalo senza toccare il codice: Environment ->
+`CHESSBOT_HARD_SIMULATIONS` = `400`. La leva esiste apposta.
 
 ---
 
-## 6. Pubblicare la UI
+## 5. Pubblicare la UI
 
 Due impostazioni sul repository GitHub, una volta sola:
 
 1. **Settings -> Pages -> Source**: `GitHub Actions` (non "Deploy from a branch")
 2. **Settings -> Secrets and variables -> Actions -> Variables -> New variable**:
    - nome: `BACKEND_URL`
-   - valore: `https://TUONOME-chessbot-api.hf.space`  (con `https://`, senza `/` finale)
+   - valore: `https://<nome-servizio>.onrender.com`  (con `https://`, senza `/` finale)
 
-Poi lancia il deploy: scheda **Actions** -> workflow **pages** -> **Run workflow**. Da
-qui in avanti riparte da solo ad ogni modifica dentro `web/`.
+Poi: scheda **Actions** -> workflow **pages** -> **Run workflow**. Da qui in avanti riparte
+da solo ad ogni modifica dentro `web/`.
 
 Il sito sara su `https://TUONOME.github.io/Resnet-Based-Chess-Bot-Fine-Tuned-with-RL/`.
 
@@ -183,27 +158,29 @@ esplicito invece di pubblicare un sito che sembra funzionare e non gioca.
 
 ## Cosa aspettarsi, e cosa non e un guasto
 
-**Il primo caricamento dopo qualche ora e lento.** Lo Space gratuito si addormenta dopo un
-periodo di inattivita e il risveglio richiede una trentina di secondi. La UI chiama
+**Il primo caricamento dopo un quarto d'ora e lento.** Il servizio gratuito si sospende
+dopo 15 minuti di inattivita e il risveglio richiede circa un minuto. La UI chiama
 `/health` all'apertura della pagina proprio per far partire il risveglio mentre stai
 scegliendo la difficolta, e la prima richiesta ha un timeout di 45 secondi invece di 15.
 Non e rotto: sta tornando su.
 
 **Regge poche partite insieme.** Le ricerche sono serializzate: una seconda partita in
-corso riceve `503` e la UI dice di riprovare. Con 2 vCPU sono circa 5-8 giocatori
-contemporanei a livello medio, 2-3 a difficile. Per un progetto da portfolio e
-abbondante; non e dimensionato per traffico vero.
+corso riceve `503` e la UI dice di riprovare. Per un progetto da portfolio e abbondante;
+non e dimensionato per traffico vero.
+
+**Le 750 ore gratuite al mese** di Render bastano per un servizio solo, che comunque resta
+sospeso quando nessuno gioca.
 
 **La pagina bianca ha quasi sempre una causa sola.** Se il sito si carica vuoto, e il
 `--base-href`: Pages serve da una sottocartella e Flutter senza quel parametro genera
 percorsi assoluti. Il workflow lo ricava dal nome del repository, quindi non dovrebbe
-succedere — ma se rinomini il repository, ricordati che l'indirizzo cambia.
+succedere — ma se rinomini il repository, l'indirizzo cambia.
 
 **Se la scacchiera si vede ma nessuna mossa arriva**, apri la console del browser (F12).
 Un errore CORS significa che l'origine di Pages non e fra quelle autorizzate in
-`src/chessbot/api/app.py` (`ALLOWED_ORIGINS`): va aggiunta li e ripubblicato lo Space.
-Nessun errore visibile ma richiesta bloccata significa quasi sempre mixed content, cioe
-un `BACKEND_URL` scritto `http://` invece di `https://`.
+`src/chessbot/api/app.py` (`ALLOWED_ORIGINS`): va aggiunta li e ripubblicato il backend.
+Nessun errore visibile ma richiesta bloccata significa quasi sempre mixed content, cioe un
+`BACKEND_URL` scritto `http://` invece di `https://`.
 
 ---
 
@@ -211,9 +188,9 @@ un `BACKEND_URL` scritto `http://` invece di `https://`.
 
 | | Dove | Indirizzo |
 |---|---|---|
-| Pesi | repo modello HF | `huggingface.co/TUONOME/chessbot-rl` |
-| Motore | HF Space | `TUONOME-chessbot-api.hf.space` |
+| Modello ONNX | release GitHub | `github.com/TUONOME/REPO/releases/tag/v0.2-onnx` |
+| Motore | Render | `<nome-servizio>.onrender.com` |
 | UI | GitHub Pages | `TUONOME.github.io/<repo>/` |
 
-Il contratto fra le ultime due e `docs/API_CONTRACT.md`: se cambia una delle due meta,
-si aggiorna prima quel file.
+Il contratto fra le ultime due e `docs/API_CONTRACT.md`: se cambia una delle due meta, si
+aggiorna prima quel file.

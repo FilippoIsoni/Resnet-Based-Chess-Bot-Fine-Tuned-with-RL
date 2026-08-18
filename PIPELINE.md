@@ -248,7 +248,10 @@ cambio di URL.
 - [ ] `/health` risponde **mentre** è in corso una ricerca a 800 simulazioni — se si blocca,
       l'handler è stato scritto `async def` e la ricerca CPU-bound sta bloccando l'event loop
 - [ ] CORS: header presente per l'origine di Pages, assente per un'origine non autorizzata
-- [ ] `requirements-serve.txt` coerente con la scelta torch (niente `onnxruntime`)
+- [ ] parita ONNX verificata: scarto < 1e-3 dai logit PyTorch e stessa mossa preferita
+      (`tests/unit/test_onnx_parity.py`) — in produzione si serve con onnxruntime, e una
+      rete che risponde *quasi* come quella addestrata non crasha, gioca solo peggio
+- [ ] `requirements-serve.txt` coerente con la scelta ONNX (niente `torch`)
 - [ ] tempi misurati sullo Space reale per i tre livelli; se `hard` supera ~8 s si scende a
       400 simulazioni — decisione sui dati, non sulla stima
 

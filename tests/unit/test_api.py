@@ -15,7 +15,6 @@ from collections.abc import Iterator
 import chess
 import httpx
 import pytest
-import torch
 from fastapi.testclient import TestClient
 
 from chessbot.api import engine as engine_module
@@ -54,7 +53,7 @@ class ScriptedEvaluator:
 def make_state(**overrides: object) -> EngineState:
     defaults: dict[str, object] = {
         "evaluator": ScriptedEvaluator(0.4),
-        "device": torch.device("cpu"),
+        "device": "cpu",
         "model_loaded": True,
         "start_time": time.monotonic(),
         "rate_limiter": InMemoryRateLimiter(max_requests=1000, window_s=60.0),

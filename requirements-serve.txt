@@ -1,17 +1,23 @@
 # Dipendenze del solo backend di deployment (Stadio 7).
 #
-# torch CPU invece di ONNX (docs/DECISIONS.md, 2026-08-17): si riusano invariati
-# Evaluator/run_mcts del motore, niente export ne verifica di parita numerica.
-# Su Hugging Face Spaces il peso dell'immagine non e un vincolo.
+# **Senza torch.** Il servizio gira su onnxruntime: 150 MB di RSS contro i 608
+# della stessa rete servita da PyTorch, di cui 489 solo per `import torch`.
+# Non e un'ottimizzazione ma un requisito — i piani di hosting gratuiti rimasti
+# si fermano a 512 MB, quindi con torch il backend non parte proprio
+# (docs/DECISIONS.md, 2026-08-18).
 #
-# torch NON e elencato qui di proposito, stessa convenzione di requirements.txt:
-# va installato prima, dall'indice CPU dedicato (stessa riga gia usata in
-# .github/workflows/checks.yml):
-#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+# Il modello ONNX non e in questo elenco perche non e un pacchetto: si genera
+# con `python scripts/export_onnx.py` e si scarica a parte in fase di deploy,
+# vedi deploy/HOSTING.md.
+#
+# Verificato: con queste sole dipendenze l'app si avvia, carica il modello e
+# gioca — `import torch` non avviene mai.
 
 chess==1.11.2
-numpy==1.26.4  # < 2: torch e compilato contro l'ABI C di NumPy 1.x, vedi requirements.txt
+numpy==1.26.4  # < 2: vincolo ereditato da requirements.txt, vedi la nota li
 pydantic==2.13.4
+
+onnxruntime==1.23.2
 
 fastapi==0.141.1
 uvicorn[standard]==0.52.1

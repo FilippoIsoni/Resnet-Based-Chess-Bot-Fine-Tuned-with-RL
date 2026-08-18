@@ -35,13 +35,12 @@ storico: quello che resta e la parte *tree search*.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 import chess
 import numpy as np
-import torch
 
 from chessbot.encoding import N_MOVES, encode_board
-from chessbot.model.network import masked_policy_logits
 from chessbot.search.node import (
     Node,
     add_virtual_loss,
@@ -50,6 +49,20 @@ from chessbot.search.node import (
     select_child,
     terminal_value,
 )
+
+if TYPE_CHECKING:
+    import torch
+
+# > **torch si importa dentro `Evaluator`, non qui in cima.**
+#
+# E l'unica classe del modulo che lo usa: l'albero, il PUCT e il backup sono
+# numpy e python puro. Importarlo a livello di modulo costa **489 MB di RSS a
+# chiunque tocchi `chessbot.search`**, anche a chi la rete la serve con
+# onnxruntime — e sono i 489 MB che decidono se il backend entra o no in un
+# piano di hosting gratuito da 512 MB (vedi `api/onnx_evaluator.py`).
+#
+# Il costo di questa scelta e un import ritardato alla prima costruzione di un
+# `Evaluator`, che nel training avviene una volta sola all'avvio.
 
 
 @dataclass
@@ -131,11 +144,13 @@ class Evaluator:
     """
 
     def __init__(self, model: torch.nn.Module, device: torch.device) -> None:
+        import torch  # vedi la nota in cima al modulo
+
+        self.torch = torch
         self.model = model
         self.device = device
         self.model.eval()
 
-    @torch.no_grad()
     def evaluate(self, boards: list[chess.Board]) -> list[tuple[dict[chess.Move, float], float]]:
         """Da posizioni a (priori sulle mosse legali, valore).
 
@@ -146,6 +161,9 @@ class Evaluator:
             return []
 
         from chessbot.encoding import encode_move
+        from chessbot.model.network import masked_policy_logits
+
+        torch = self.torch
 
         # Le mosse legali e i loro indici si calcolano una volta sola: servono sia per
         # la maschera sia per estrarre i priori, e `encode_move` non e gratis.
@@ -159,35 +177,36 @@ class Evaluator:
         for row, idx in enumerate(indices):
             masks[row, idx] = True
 
-        planes_t = torch.from_numpy(planes).to(self.device)
-        masks_t = torch.from_numpy(masks).to(self.device)
+        with torch.no_grad():
+            planes_t = torch.from_numpy(planes).to(self.device)
+            masks_t = torch.from_numpy(masks).to(self.device)
 
-        policy_logits, wdl_logits = self.model(planes_t)
+            policy_logits, wdl_logits = self.model(planes_t)
 
-        # Stessa mascheratura del training (criticita #12).
-        masked = masked_policy_logits(policy_logits, masks_t)
-        probs = torch.softmax(masked.float(), dim=1)
+            # Stessa mascheratura del training (criticita #12).
+            masked = masked_policy_logits(policy_logits, masks_t)
+            probs = torch.softmax(masked.float(), dim=1)
 
-        # > **Si estraggono i priori sulla GPU, prima di scendere in CPU.**
-        # > Trasferire l'intera matrice (batch x 4672) costava il 26% del tempo totale di
-        # > self-play — misurato col profiler: 29,3 s su 113. Ma di quei 4672 valori ne
-        # > servono ~35 per posizione, quelli delle mosse legali: il 99,3% del traffico
-        # > sul bus PCIe era spazzatura.
-        # >
-        # > Con `gather` la selezione avviene sulla GPU e in CPU scendono solo i valori
-        # > utili. Il padding con l'indice 0 per le righe piu corte e innocuo: le colonne
-        # > in eccesso vengono ignorate leggendo solo `len(moves)` valori per riga.
-        max_legal = max((len(m) for m in legal_moves), default=1)
-        gather_idx = torch.zeros((len(boards), max_legal), dtype=torch.long, device=self.device)
-        for row, idx in enumerate(indices):
-            if idx:
-                gather_idx[row, : len(idx)] = torch.tensor(idx, device=self.device)
+            # > **Si estraggono i priori sulla GPU, prima di scendere in CPU.**
+            # > Trasferire l'intera matrice (batch x 4672) costava il 26% del tempo totale di
+            # > self-play — misurato col profiler: 29,3 s su 113. Ma di quei 4672 valori ne
+            # > servono ~35 per posizione, quelli delle mosse legali: il 99,3% del traffico
+            # > sul bus PCIe era spazzatura.
+            # >
+            # > Con `gather` la selezione avviene sulla GPU e in CPU scendono solo i valori
+            # > utili. Il padding con l'indice 0 per le righe piu corte e innocuo: le colonne
+            # > in eccesso vengono ignorate leggendo solo `len(moves)` valori per riga.
+            max_legal = max((len(m) for m in legal_moves), default=1)
+            gather_idx = torch.zeros((len(boards), max_legal), dtype=torch.long, device=self.device)
+            for row, idx in enumerate(indices):
+                if idx:
+                    gather_idx[row, : len(idx)] = torch.tensor(idx, device=self.device)
 
-        selected = probs.gather(1, gather_idx).cpu().numpy()
+            selected = probs.gather(1, gather_idx).cpu().numpy()
 
-        # Dal WDL al valore scalare: P(vittoria) - P(sconfitta), in [-1, 1].
-        wdl = torch.softmax(wdl_logits.float(), dim=1).cpu().numpy()
-        values = wdl[:, 2] - wdl[:, 0]
+            # Dal WDL al valore scalare: P(vittoria) - P(sconfitta), in [-1, 1].
+            wdl = torch.softmax(wdl_logits.float(), dim=1).cpu().numpy()
+            values = wdl[:, 2] - wdl[:, 0]
 
         out: list[tuple[dict[chess.Move, float], float]] = []
         for i, moves in enumerate(legal_moves):

@@ -136,11 +136,32 @@ def check_ruff_format() -> Result:
 
 
 def check_mypy() -> Result:
+    """Controllo dei tipi su `src`.
+
+    La cache viene indirizzata al pozzo nero del sistema (`os.devnull`: `nul`
+    su Windows, `/dev/null` altrove) per aggirare un bug di mypy 1.18.2: nello
+    **scrivere** la cache solleva `NotImplementedError: Cannot serialize
+    TypeGuardedType instance` su qualunque modulo che importi torch, e il gate
+    risulta rosso per un guasto dello strumento invece che per un errore nel
+    codice.
+
+    Le alternative non funzionano: `--no-incremental` e `incremental = false`
+    lasciano comunque scrivere la cache, e una directory temporanea vera pure.
+    Solo un percorso non scrivibile impedisce la scrittura, e a quel punto
+    mypy prosegue e riporta i suoi risultati normalmente.
+
+    `os.devnull` e non `/dev/null` scritto a mano: quest'ultimo funziona da
+    Git Bash, che lo traduce, ma non da PowerShell — verificato.
+
+    Non si perde nessun controllo, solo il riuso fra esecuzioni: una decina di
+    secondi in piu sull'intero `src`. Da togliere quando si aggiorna mypy a una
+    versione che corregge il bug.
+    """
     if not has_python_sources():
         return Result("mypy", "SKIP", "nessun sorgente Python ancora")
     if not module_available("mypy"):
         return Result("mypy", "FAIL", "mypy non installato")
-    p = run_module("mypy", "src")
+    p = run_module("mypy", "src", f"--cache-dir={os.devnull}")
     return Result("mypy", "PASS" if p.returncode == 0 else "FAIL", p.stdout.strip()[-800:])
 
 
@@ -949,8 +970,32 @@ def check_api_gate() -> list[Result]:
             )
         ]
 
+    results = []
     p = run_module("pytest", "-q", "--no-header", str(test_file))
-    return [Result("gate api", "PASS" if p.returncode == 0 else "FAIL", p.stdout.strip()[-1000:])]
+    results.append(
+        Result("gate api", "PASS" if p.returncode == 0 else "FAIL", p.stdout.strip()[-1000:])
+    )
+
+    # Parita ONNX: in produzione si serve con onnxruntime, quindi una
+    # divergenza dall'originale addestrato e una perdita di forza silenziosa,
+    # esattamente il tipo di guasto che questi gate esistono per intercettare.
+    # SKIP se manca il checkpoint da cui esportare (gitignored).
+    parity = ROOT / "tests" / "unit" / "test_onnx_parity.py"
+    if not parity.exists():
+        results.append(Result("parita ONNX", "SKIP", "test non presente"))
+    elif not (ROOT / "runs" / "rl" / "main" / "state.pt").exists():
+        results.append(Result("parita ONNX", "SKIP", "checkpoint RL assente"))
+    else:
+        q = run_module("pytest", "-q", "--no-header", "-m", "slow", str(parity))
+        results.append(
+            Result(
+                "parita ONNX",
+                "PASS" if q.returncode == 0 else "FAIL",
+                q.stdout.strip()[-600:],
+            )
+        )
+
+    return results
 
 
 def _stage_placeholder(stage: str, module: str, tests_dir: str) -> list[Result]:
