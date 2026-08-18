@@ -93,6 +93,18 @@ class HttpEngine implements Engine {
     }
 
     if (response.statusCode != 200) {
+      // A 422 means the backend judged the position itself illegal. That is
+      // never the player's doing, so the position and the server's reason go
+      // to the console: without them the report is "it broke", and the actual
+      // cause has to be guessed from a screenshot.
+      if (response.statusCode == 422) {
+        // `print`, not `debugPrint`: the latter is stripped from release
+        // builds, which is exactly where this is needed — the published site.
+        // ignore: avoid_print
+        print('[chessbot] position rejected — FEN: $fen');
+        // ignore: avoid_print
+        print('[chessbot] reason: ${response.body}');
+      }
       throw EngineException(_messageFor(response));
     }
 
