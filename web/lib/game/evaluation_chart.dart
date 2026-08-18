@@ -122,8 +122,9 @@ class _ChartPainter extends CustomPainter {
     // The scale is fixed from -1 to +1, like the engine's evaluation. Fitting
     // it to the data would make a tiny edge look like a rout.
     double y(double evaluation) => size.height * (1 - (evaluation + 1) / 2);
-    double x(int index) =>
-        evaluations.length == 1 ? 0 : size.width * index / (evaluations.length - 1);
+    double x(int index) => evaluations.length == 1
+        ? 0
+        : size.width * index / (evaluations.length - 1);
 
     // Two barely-there bands: above the midline is your ground, below is the
     // engine's. They make the chart readable without axis labels.

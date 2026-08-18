@@ -58,35 +58,40 @@ const TextStyle monoLabel = TextStyle(
   color: textMuted,
 );
 
-/// The base colour of the board.
+/// The two board shades.
 ///
-/// The library takes **one** colour and derives both square shades from it by
-/// lightening in HSL: light squares = colour + 0.5 lightness, dark = + 0.1.
-/// That +0.5 is a large, additive jump, so the light squares always land
-/// fairly bright — there is no base dark enough to avoid it.
+/// Chosen directly, not derived. The previous library took a single colour and
+/// lightened it by a fixed amount in HSL, which forced the light squares
+/// bright whatever base it was given — a beige board on a dark page. Drawing
+/// the board here means picking both tones outright.
 ///
-/// What can be controlled is the *hue*. A warm base such as `#2B2620` yields
-/// `#B2A698` and `#484036`: the classic beige-and-brown board, which fights a
-/// dark interface. A neutral grey yields `#929292` and `#2C2C2C`, which sits
-/// with the rest of the palette while keeping the two shades far enough apart
-/// to read as a chessboard.
+/// They sit close in hue to the surfaces around them and far enough apart in
+/// lightness to read as a chessboard at a glance.
+const Color boardLight = Color(0xFF6E6A62);
+const Color boardDark = Color(0xFF3A3733);
+
+/// The pieces.
 ///
-/// Checked against the library's own conversion rather than guessed, after the
-/// board turned out brown in a real browser despite this value being passed.
-const Color boardBase = Color(0xFF121212);
+/// Warm off-white and near-black rather than pure #FFF/#000: full white glares
+/// against a dark board, and full black loses its outline on the dark squares.
+/// Each glyph carries a thin shadow in the opposite colour, so both stay
+/// legible on both shades.
+const Color pieceWhite = Color(0xFFF2EFE9);
+const Color pieceBlack = Color(0xFF15130F);
 
 ThemeData buildDarkTheme() {
-  final scheme = ColorScheme.fromSeed(
-    seedColor: accent,
-    brightness: Brightness.dark,
-  ).copyWith(
-    surface: background,
-    primary: accent,
-    // Text on the accent must be dark: brass is a light colour, and white on
-    // top of it is unreadable.
-    onPrimary: const Color(0xFF1A1405),
-    outline: outline,
-  );
+  final scheme =
+      ColorScheme.fromSeed(
+        seedColor: accent,
+        brightness: Brightness.dark,
+      ).copyWith(
+        surface: background,
+        primary: accent,
+        // Text on the accent must be dark: brass is a light colour, and white on
+        // top of it is unreadable.
+        onPrimary: const Color(0xFF1A1405),
+        outline: outline,
+      );
 
   return ThemeData(
     useMaterial3: true,
@@ -102,14 +107,8 @@ ThemeData buildDarkTheme() {
         letterSpacing: -0.5,
         color: textPrimary,
       ),
-      headlineSmall: TextStyle(
-        fontWeight: FontWeight.w600,
-        color: textPrimary,
-      ),
-      titleMedium: TextStyle(
-        fontWeight: FontWeight.w600,
-        color: textPrimary,
-      ),
+      headlineSmall: TextStyle(fontWeight: FontWeight.w600, color: textPrimary),
+      titleMedium: TextStyle(fontWeight: FontWeight.w600, color: textPrimary),
       bodyMedium: TextStyle(color: textSecondary),
       bodySmall: TextStyle(color: textMuted),
     ),
@@ -121,9 +120,7 @@ ThemeData buildDarkTheme() {
           fontWeight: FontWeight.w600,
           letterSpacing: 0.3,
         ),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
     ),
     textButtonTheme: TextButtonThemeData(

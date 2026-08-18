@@ -21,16 +21,17 @@ import 'package:http/testing.dart';
 
 const startPosition =
     'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
-const blackToMove =
-    'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b KQkq - 0 1';
+const blackToMove = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b KQkq - 0 1';
 
 /// A client that answers every request with one canned response.
 http.Client stubbing(int status, Object body) {
-  return MockClient((_) async => http.Response(
-        body is String ? body : jsonEncode(body),
-        status,
-        headers: {'content-type': 'application/json'},
-      ));
+  return MockClient(
+    (_) async => http.Response(
+      body is String ? body : jsonEncode(body),
+      status,
+      headers: {'content-type': 'application/json'},
+    ),
+  );
 }
 
 void main() {
@@ -74,8 +75,11 @@ void main() {
       );
 
       final move = await engine.bestMove(startPosition, Difficulty.easy);
-      expect(move.evaluation, closeTo(0.4, 1e-9),
-          reason: 'White to move: +0.4 for the mover is +0.4 for White');
+      expect(
+        move.evaluation,
+        closeTo(0.4, 1e-9),
+        reason: 'White to move: +0.4 for the mover is +0.4 for White',
+      );
     });
 
     test('is flipped when Black is to move', () async {
@@ -94,8 +98,11 @@ void main() {
       );
 
       final move = await engine.bestMove(blackToMove, Difficulty.easy);
-      expect(move.evaluation, closeTo(-0.4, 1e-9),
-          reason: 'Black to move: +0.4 for the mover is -0.4 for White');
+      expect(
+        move.evaluation,
+        closeTo(-0.4, 1e-9),
+        reason: 'Black to move: +0.4 for the mover is -0.4 for White',
+      );
     });
   });
 

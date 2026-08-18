@@ -11,8 +11,8 @@
 library;
 
 import 'package:chessbot_ui/engine/engine.dart';
+import 'package:chessbot_ui/game/board_view.dart';
 import 'package:chessbot_ui/main.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'fake_engine.dart';
@@ -33,10 +33,10 @@ void main() {
     await tester.tap(find.text('Start game'));
     await tester.pumpAndSettle();
 
-    // With `ChessBoardProvider` missing there is an ErrorWidget here instead
-    // of the board: that is exactly the case this test guards.
     expect(tester.takeException(), isNull);
-    expect(find.byType(GridView), findsOneWidget);
+    // The board is 64 squares laid out by hand, so it is found by its own
+    // widget rather than by a GridView.
+    expect(find.byType(BoardView), findsOneWidget);
     expect(find.text('Your move.'), findsOneWidget);
   });
 

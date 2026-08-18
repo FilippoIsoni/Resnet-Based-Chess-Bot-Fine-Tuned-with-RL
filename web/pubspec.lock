@@ -17,14 +17,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.1.2"
-  change_case:
-    dependency: transitive
-    description:
-      name: change_case
-      sha256: e41ef3df58521194ef8d7649928954805aeb08061917cf658322305e61568003
-      url: "https://pub.dev"
-    source: hosted
-    version: "2.2.0"
   characters:
     dependency: transitive
     description:
@@ -33,22 +25,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.4.1"
-  chess_interface:
+  chess:
     dependency: "direct main"
     description:
-      name: chess_interface
-      sha256: bf6becbbdf7521b2f98cc4a9a293f488c27e9868f90e3100b1f5cfc116ad9b29
+      name: chess
+      sha256: "6e5a8222931bfb5cd14a4bb9b030c24e257e23957ec3c533fb0ff74a48984ddb"
       url: "https://pub.dev"
     source: hosted
-    version: "1.2.1"
-  chess_interface_dart:
-    dependency: "direct main"
-    description:
-      name: chess_interface_dart
-      sha256: "7a4e46ef61240e72263e73e977c531242bdb16236a7fe26bed6c15a63cca8e08"
-      url: "https://pub.dev"
-    source: hosted
-    version: "1.1.0"
+    version: "0.8.1"
   clock:
     dependency: transitive
     description:
@@ -91,14 +75,6 @@ packages:
     description: flutter
     source: sdk
     version: "0.0.0"
-  gradient_circular_progress_indicator:
-    dependency: transitive
-    description:
-      name: gradient_circular_progress_indicator
-      sha256: "0a9d69c1226b6f273b365aa9fabf92de4ee353dfb185c9dcbc04aa97178037df"
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.0.4"
   http:
     dependency: "direct main"
     description:

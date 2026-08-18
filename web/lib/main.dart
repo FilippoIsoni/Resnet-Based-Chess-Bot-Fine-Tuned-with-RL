@@ -1,4 +1,3 @@
-import 'package:chess_interface/providers/chess_board_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -28,19 +27,8 @@ class ChessBotApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Required by `ChessBoardWidget`, which wraps itself in a
-    // `Consumer<ChessBoardProvider>`. It does not hold the game state — that
-    // lives in `GameController` — it is only the signal to repaint the board
-    // after the engine moves.
-    final boardProvider = ChessBoardProvider();
-
-    return MultiProvider(
-      providers: [
-        ChangeNotifierProvider(
-          create: (_) => GameController(engine, onBoardChanged: boardProvider.notify),
-        ),
-        ChangeNotifierProvider.value(value: boardProvider),
-      ],
+    return ChangeNotifierProvider(
+      create: (_) => GameController(engine),
       child: MaterialApp(
         title: 'Chess bot',
         debugShowCheckedModeBanner: false,

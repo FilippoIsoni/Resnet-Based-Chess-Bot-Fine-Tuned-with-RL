@@ -10,7 +10,7 @@ import 'engine.dart';
 /// changes, this file changes with it.
 class HttpEngine implements Engine {
   HttpEngine(this.baseUrl, {http.Client? client})
-      : _client = client ?? http.Client();
+    : _client = client ?? http.Client();
 
   /// No trailing slash, e.g. `https://someone-chessbot.hf.space`.
   final String baseUrl;
@@ -71,7 +71,7 @@ class HttpEngine implements Engine {
       throw EngineException(
         _cold
             ? 'The engine did not answer in time. On the free server the first '
-                'wake-up can take about a minute - try again.'
+                  'wake-up can take about a minute - try again.'
             : 'Could not reach the engine. Check your connection.',
       );
     }

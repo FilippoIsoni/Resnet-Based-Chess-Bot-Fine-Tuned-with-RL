@@ -1,11 +1,9 @@
-import 'package:chess_interface/arbiter/flutter_arbiter.dart';
-import 'package:chess_interface/chess_board_widget.dart';
-import 'package:chess_interface/models/board_theme_config.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../engine/engine.dart';
 import '../theme.dart';
+import 'board_view.dart';
 import 'evaluation_chart.dart';
 import 'game_controller.dart';
 
@@ -44,7 +42,9 @@ class GameScreen extends StatelessWidget {
                 ),
                 child: switch (controller.phase) {
                   GamePhase.menu => const _MenuView(key: ValueKey('menu')),
-                  GamePhase.playing => const _PlayingView(key: ValueKey('play')),
+                  GamePhase.playing => const _PlayingView(
+                    key: ValueKey('play'),
+                  ),
                   GamePhase.over => const _GameOverView(key: ValueKey('over')),
                 },
               ),
@@ -104,7 +104,10 @@ class _MenuView extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 12),
-        Text('You play White and move first.', style: theme.textTheme.bodySmall),
+        Text(
+          'You play White and move first.',
+          style: theme.textTheme.bodySmall,
+        ),
       ],
     );
   }
@@ -143,7 +146,9 @@ class _DifficultyTile extends StatelessWidget {
             child: Row(
               children: [
                 Icon(
-                  selected ? Icons.radio_button_checked : Icons.radio_button_off,
+                  selected
+                      ? Icons.radio_button_checked
+                      : Icons.radio_button_off,
                   color: selected ? accent : outline,
                   size: 20,
                 ),
@@ -205,24 +210,18 @@ class _PlayingView extends StatelessWidget {
         LayoutBuilder(
           builder: (context, constraints) {
             final size = constraints.maxWidth.clamp(280.0, 460.0);
-            return ChessBoardWidget(
-              game: game,
-              boardSize: size,
-              playAs: GameController.playerColor,
-              // The user must not be able to move while the engine thinks:
-              // without this, two White moves pile up in a row.
-              spectateInitially: controller.engineThinking,
-              // The library derives both square shades from a single colour by
-              // lightening it: light = +0.5 lightness, dark = +0.1. A dark
-              // board therefore needs a very dark base, not a mid grey.
-              config: BoardThemeConfig(boardColor: boardBase),
-              onMove: (_, _) => controller.playerMove(),
-              arbiter: FlutterArbiter(
-                context: context,
-                // We handle the dialogs ourselves: the library's are not
-                // styled and we do not control what they say.
-                showDialogs: false,
-                onGameOver: (_) {},
+            // Centred inside a box of exactly that side: inside a Column the
+            // builder gets a bounded width but unbounded height, and without
+            // this the board is stretched vertically into rectangles.
+            return Center(
+              child: BoardView(
+                game: game,
+                size: size,
+                // While the engine thinks the board is inert: without this the
+                // player can queue two moves in a row.
+                interactive: !controller.engineThinking,
+                lastMove: controller.lastMove,
+                onMove: controller.playMove,
               ),
             );
           },
@@ -234,7 +233,8 @@ class _PlayingView extends StatelessWidget {
           duration: const Duration(milliseconds: 200),
           child: _StatusBar(
             key: ValueKey(
-              controller.error ?? (controller.engineThinking ? 'think' : 'idle'),
+              controller.error ??
+                  (controller.engineThinking ? 'think' : 'idle'),
             ),
             thinking: controller.engineThinking,
             error: controller.error,
@@ -247,11 +247,7 @@ class _PlayingView extends StatelessWidget {
 
 /// The line under the board: whose turn it is, or what went wrong.
 class _StatusBar extends StatelessWidget {
-  const _StatusBar({
-    super.key,
-    required this.thinking,
-    required this.error,
-  });
+  const _StatusBar({super.key, required this.thinking, required this.error});
 
   final bool thinking;
   final String? error;
@@ -346,10 +342,7 @@ class _GameOverView extends StatelessWidget {
                 ),
               ],
               const SizedBox(height: 10),
-              Text(
-                controller.difficulty.label.toUpperCase(),
-                style: monoLabel,
-              ),
+              Text(controller.difficulty.label.toUpperCase(), style: monoLabel),
             ],
           ),
         ),
