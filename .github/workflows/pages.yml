@@ -1,0 +1,111 @@
+# Pubblica la UI Flutter su GitHub Pages (Stadio 7, meta frontend).
+#
+# Separato da checks.yml, che resta il CI del Python: questo tocca solo `web/`
+# e non ha niente a che vedere col venv o coi gate di fase.
+#
+# Prima di funzionare richiede due passaggi manuali, una volta sola:
+#   1. Settings -> Pages -> Source = "GitHub Actions" (non "deploy from branch")
+#   2. Settings -> Secrets and variables -> Actions -> Variables:
+#      BACKEND_URL = https://<utente>-<spazio>.hf.space
+#
+# Senza la variabile la build usa il default di config.dart, che punta a
+# 127.0.0.1: la pagina si carica ma nessuna mossa arriva mai, perche il
+# browser blocca una chiamata http:// da una pagina https:// come mixed
+# content — senza errore visibile all'utente. Per questo il job fallisce
+# esplicitamente se la variabile manca.
+
+name: pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Un deploy alla volta; non annulla quello in corso, che lascerebbe il sito
+# in uno stato intermedio.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          # Fissata, non "stable": una versione che deriva nel tempo fa
+          # fallire il deploy in un giorno in cui nessuno ha toccato il codice.
+          flutter-version: "3.41.2"
+          channel: stable
+          cache: true
+
+      - name: Verifica che il backend sia configurato
+        env:
+          BACKEND_URL: ${{ vars.BACKEND_URL }}
+        run: |
+          if [ -z "$BACKEND_URL" ]; then
+            echo "::error::La variabile BACKEND_URL non e impostata."
+            echo "Settings -> Secrets and variables -> Actions -> Variables."
+            echo "Senza, la pagina punta a 127.0.0.1 e nessuna mossa funziona."
+            exit 1
+          fi
+          case "$BACKEND_URL" in
+            https://*) ;;
+            *)
+              echo "::error::BACKEND_URL deve iniziare con https:// (vale '$BACKEND_URL')."
+              echo "Pages serve in HTTPS: una chiamata http:// viene bloccata"
+              echo "dal browser come mixed content, senza errore visibile."
+              exit 1
+              ;;
+          esac
+          echo "backend: $BACKEND_URL"
+
+      - run: flutter pub get
+
+      - run: flutter analyze
+
+      - run: flutter test
+
+      - name: Build
+        env:
+          BACKEND_URL: ${{ vars.BACKEND_URL }}
+        # --base-href e obbligatorio: Pages serve da una sottocartella col nome
+        # del repository. Senza, Flutter genera percorsi assoluti da / e la
+        # pagina resta bianca, senza niente di utile in console.
+        run: |
+          flutter build web --release \
+            --base-href "/${GITHUB_REPOSITORY#*/}/" \
+            --dart-define=BACKEND_URL="$BACKEND_URL"
+
+      - name: Disattiva Jekyll
+        # Flutter genera _flutter/ e altri percorsi con l'underscore iniziale,
+        # che Jekyll ignora silenziosamente servendo una pagina rotta.
+        run: touch build/web/.nojekyll
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web/build/web
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

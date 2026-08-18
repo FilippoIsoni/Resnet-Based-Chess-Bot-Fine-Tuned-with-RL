@@ -56,3 +56,9 @@ Thumbs.db
 
 # Struttura delle cartelle tracciata, contenuto no.
 !**/.gitkeep
+
+# --- Flutter (web/, Stadio 7 frontend) ---
+web/build/
+web/.dart_tool/
+web/.flutter-plugins
+web/.flutter-plugins-dependencies

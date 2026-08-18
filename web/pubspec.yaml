@@ -1,0 +1,40 @@
+name: chessbot_ui
+description: "Interfaccia web per giocare contro il motore ResNet+MCTS."
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.11.0
+
+dependencies:
+  chess_interface: 1.2.1
+  chess_interface_dart: ^1.1.1
+  flutter:
+    sdk: flutter
+  http: ^1.6.0
+  provider: ^6.1.5+1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+
+# NON RIMUOVERE senza aver riprovato: senza questo l'app non parte.
+#
+# `chess_interface_dart` 1.1.1 ha una ricorsione infinita nel costruttore:
+# `ChessBoardInterface()` chiama `_rebuildTakenPiecesFromHistory()`, che alla
+# riga 99 costruisce un altro `ChessBoardInterface`, che richiama lo stesso
+# metodo, senza caso base. Stack overflow alla prima scacchiera creata, con o
+# senza FEN — verificato con una riproduzione minima di dieci righe.
+#
+# La 1.1.0 non ha il bug. `chess_interface` 1.2.1 pero richiede `^1.1.1`, cioe
+# proprio la versione rotta, quindi l'unico modo di usarlo e forzare qui la
+# versione buona. La 1.1.0 espone la stessa API: nessun adattamento necessario.
+#
+# Da togliere quando esce una 1.1.2 che corregge il bug.
+# Segnalato a monte: https://github.com/mryadavdilip/chess_interface_dart
+dependency_overrides:
+  chess_interface_dart: 1.1.0
