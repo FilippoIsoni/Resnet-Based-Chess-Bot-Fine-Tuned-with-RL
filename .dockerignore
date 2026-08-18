@@ -1,0 +1,32 @@
+# Contesto di build = radice del repo (docker build -f deploy/Dockerfile .).
+# Esclude tutto cio che il Dockerfile non copia esplicitamente.
+#
+# ATTENZIONE: NON escludere runs/ per intero (a differenza di .gitignore) —
+# il Dockerfile fa `COPY runs/ /app/runs/` per portare un eventuale
+# checkpoint reale presente localmente; escluderla farebbe fallire
+# silenziosamente quella copia.
+
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.git/
+.github/
+.claude/
+
+tests/
+docs/
+web/
+scripts/
+data/
+
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.coverage
+htmlcov/
+
+*.pgn
+*.pgn.zst
+runs/*.tmp

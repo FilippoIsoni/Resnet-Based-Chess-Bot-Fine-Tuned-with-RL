@@ -1,12 +1,17 @@
-# Dipendenze del solo backend di deployment (Appendice B).
-# Deliberatamente SENZA torch: si spedisce ONNX, non PyTorch.
-# La wheel torch CPU supera i 200 MB, onnxruntime sta in ~15.
+# Dipendenze del solo backend di deployment (Stadio 7).
+#
+# torch CPU invece di ONNX (docs/DECISIONS.md, 2026-08-17): si riusano invariati
+# Evaluator/run_mcts del motore, niente export ne verifica di parita numerica.
+# Su Hugging Face Spaces il peso dell'immagine non e un vincolo.
+#
+# torch NON e elencato qui di proposito, stessa convenzione di requirements.txt:
+# va installato prima, dall'indice CPU dedicato (stessa riga gia usata in
+# .github/workflows/checks.yml):
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
 
 chess==1.11.2
-numpy==2.2.6
-pyyaml==6.0.2
+numpy==1.26.4  # < 2: torch e compilato contro l'ABI C di NumPy 1.x, vedi requirements.txt
 pydantic==2.13.4
 
-onnxruntime==1.23.2
 fastapi==0.141.1
 uvicorn[standard]==0.52.1
