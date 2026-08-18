@@ -119,10 +119,36 @@ curl -X POST https://<nome-servizio>.onrender.com/move \
   -d '{"fen":"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1","level":"medium"}'
 ```
 
-**Cronometra i tre livelli** — e l'unico numero che qui non si puo prevedere. In locale con
-ONNX sono 0,15 / 0,44 / 1,7 s; su hardware condiviso aspettati 2-4 volte tanto. Se `hard`
-supera gli 8 secondi, abbassalo senza toccare il codice: Environment ->
-`CHESSBOT_HARD_SIMULATIONS` = `400`. La leva esiste apposta.
+### I tempi, misurati
+
+Render free da **0,1 vCPU condiviso**. Misurato sul servizio vero: e circa **19 volte piu
+lento** di una macchina da sviluppo a 16 core, non 2-4 come si poteva stimare. Con i valori
+predefiniti:
+
+| Livello | Simulazioni | Tempo |
+|---|---|---|
+| Casual | 50 | 3,1 s |
+| Club | 200 | 8,5 s |
+| Strong | 800 | **32,7 s** — oltre il timeout del client |
+
+Inutilizzabili. Il costo e di ~40 ms per simulazione piu ~0,8 s fissi, quindi i valori
+sensati su questo hardware sono **25 / 60 / 150**, che danno circa 1,8 / 3,2 / 6,8 s.
+
+Da impostare in **Environment**, senza toccare il codice ne ricostruire nulla:
+
+```
+CHESSBOT_EASY_SIMULATIONS     25
+CHESSBOT_MEDIUM_SIMULATIONS   60
+CHESSBOT_HARD_SIMULATIONS     150
+```
+
+**Cosa si perde in forza.** Il livello Club scende da 200 a 60 simulazioni: dai 1964 Elo
+misurati a qualcosa intorno ai 1800, stimato sulla curva del Gate 5 e non misurato. Resta
+un avversario serio per un giocatore di club. La forza piena richiede una macchina vera —
+il piano gratuito e per far provare il progetto, non per giocarci partite di torneo.
+
+Se un domani passi a un piano a pagamento, si rimuovono le tre variabili e i default
+tornano quelli originali.
 
 ---
 

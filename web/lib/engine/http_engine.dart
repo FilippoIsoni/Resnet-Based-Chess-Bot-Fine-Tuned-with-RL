@@ -28,8 +28,11 @@ class HttpEngine implements Engine {
   /// single short timeout would fail every time on open; a single long one
   /// would leave the user staring at a frozen board when the server really is
   /// unreachable.
+  /// 30 s a caldo, non 15: measured on the free tier, a hard-level search takes
+  /// about 7 s, and the CPU is shared — a slow minute would otherwise surface
+  /// as "could not reach the engine" when the server is simply busy.
   Duration get _timeout =>
-      _cold ? const Duration(seconds: 45) : const Duration(seconds: 15);
+      _cold ? const Duration(seconds: 60) : const Duration(seconds: 30);
 
   @override
   Future<bool> ping() async {

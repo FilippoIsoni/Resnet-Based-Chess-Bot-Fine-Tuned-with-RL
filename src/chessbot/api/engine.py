@@ -32,19 +32,52 @@ DEFAULT_SUPERVISED_CHECKPOINT = ROOT / "runs" / "supervised" / "best.pt"
 DEFAULT_ONNX_MODEL = ROOT / "runs" / "onnx" / "chessbot.onnx"
 
 
-def _hard_simulations() -> int:
-    """Leva per abbassare `hard` a 400 su hardware lento, senza toccare codice
-    (decisione da prendere sui tempi misurati sullo Space reale, non ora)."""
-    return int(os.environ.get("CHESSBOT_HARD_SIMULATIONS", "800"))
+MAX_SIMULATIONS = 800
+"""Tetto invalicabile: il client manda un'etichetta, non un numero, ma questa
+e la seconda linea di difesa contro una configurazione distratta."""
+
+
+def _simulations(level: str, default: int) -> int:
+    """Simulazioni di un livello, sovrascrivibili da variabile d'ambiente.
+
+    `CHESSBOT_EASY_SIMULATIONS`, `CHESSBOT_MEDIUM_SIMULATIONS`,
+    `CHESSBOT_HARD_SIMULATIONS`.
+
+    Servono perche la potenza dell'host non si conosce prima di misurarla, e i
+    valori giusti dipendono da quella. **Misurato su Render free (0,1 vCPU
+    condiviso): 19 volte piu lento di una macchina da sviluppo a 16 core** —
+    con i valori di default il livello difficile impiegava 33 secondi, oltre il
+    timeout del client, e il medio 8,5.
+
+    Il tetto di `MAX_SIMULATIONS` vale comunque: la variabile puo solo restare
+    entro quel limite.
+    """
+    raw = os.environ.get(f"CHESSBOT_{level.upper()}_SIMULATIONS")
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        logger.warning("CHESSBOT_%s_SIMULATIONS non e un numero: %r", level.upper(), raw)
+        return default
+    if not 1 <= value <= MAX_SIMULATIONS:
+        logger.warning(
+            "CHESSBOT_%s_SIMULATIONS fuori intervallo (1-%d): %d",
+            level.upper(),
+            MAX_SIMULATIONS,
+            value,
+        )
+        return default
+    return value
 
 
 LEVEL_SEARCH_CONFIGS: dict[str, SearchConfig] = {
     # temperature=0.8 su easy: campiona fra le mosse ben visitate invece di
     # prendere sempre la piu visitata, per varieta — non e un indebolimento
-    # aggiuntivo, quello lo fanno gia le 50 simulazioni (docs/API_CONTRACT.md).
-    "easy": SearchConfig(simulations=50, temperature=0.8),
-    "medium": SearchConfig(simulations=200),
-    "hard": SearchConfig(simulations=_hard_simulations()),
+    # aggiuntivo, quello lo fanno gia le poche simulazioni (docs/API_CONTRACT.md).
+    "easy": SearchConfig(simulations=_simulations("easy", 50), temperature=0.8),
+    "medium": SearchConfig(simulations=_simulations("medium", 200)),
+    "hard": SearchConfig(simulations=_simulations("hard", 800)),
 }
 
 

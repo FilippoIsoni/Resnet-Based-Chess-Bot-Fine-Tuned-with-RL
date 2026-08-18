@@ -326,3 +326,49 @@ def test_health_risponde_durante_ricerca_lunga(
         f"/health ha impiegato {health_elapsed:.2f}s mentre /move era in corso — "
         "l'event loop e probabilmente bloccato"
     )
+
+
+# --------------------------------------------------------------------------------------
+# Simulazioni configurabili per livello
+# --------------------------------------------------------------------------------------
+
+
+def test_simulazioni_default_senza_variabili(monkeypatch: pytest.MonkeyPatch) -> None:
+    for lvl in ("EASY", "MEDIUM", "HARD"):
+        monkeypatch.delenv(f"CHESSBOT_{lvl}_SIMULATIONS", raising=False)
+    from chessbot.api.engine import _simulations
+
+    assert _simulations("easy", 50) == 50
+    assert _simulations("medium", 200) == 200
+    assert _simulations("hard", 800) == 800
+
+
+def test_simulazioni_sovrascrivibili(monkeypatch: pytest.MonkeyPatch) -> None:
+    """La leva che serve quando l'host e piu lento del previsto.
+
+    Su Render free (0,1 vCPU condiviso) i default davano 33 secondi sul livello
+    difficile, oltre il timeout del client. Abbassarli deve essere possibile
+    senza toccare il codice ne ricostruire l'immagine.
+    """
+    from chessbot.api.engine import _simulations
+
+    monkeypatch.setenv("CHESSBOT_MEDIUM_SIMULATIONS", "60")
+    assert _simulations("medium", 200) == 60
+
+
+def test_simulazioni_valore_assurdo_ignorato(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Un valore non valido non deve far partire un motore assurdo.
+
+    Meglio il default che 100.000 simulazioni per una svista di battitura: la
+    richiesta andrebbe in timeout e la causa sarebbe tutt'altro che ovvia.
+    """
+    from chessbot.api.engine import _simulations
+
+    monkeypatch.setenv("CHESSBOT_HARD_SIMULATIONS", "centomila")
+    assert _simulations("hard", 800) == 800
+
+    monkeypatch.setenv("CHESSBOT_HARD_SIMULATIONS", "100000")
+    assert _simulations("hard", 800) == 800, "oltre MAX_SIMULATIONS"
+
+    monkeypatch.setenv("CHESSBOT_HARD_SIMULATIONS", "0")
+    assert _simulations("hard", 800) == 800, "sotto il minimo"
