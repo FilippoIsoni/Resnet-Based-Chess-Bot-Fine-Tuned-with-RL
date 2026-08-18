@@ -35,21 +35,20 @@ Render e Koyeb vanno entrambi bene. La guida usa Render perche il risveglio e pi
 
 ---
 
-## 1. Convertire la rete in ONNX
+## 1. Il modello ONNX — gia fatto
 
 ```bash
-python scripts/export_onnx.py
+python scripts/export_onnx.py     # solo se lo rigeneri da un checkpoint nuovo
 ```
 
 Produce `runs/onnx/chessbot.onnx` piu un `chessbot.onnx.data` di ~46 MB — **i due file
-vanno sempre insieme**, il primo da solo e un guscio vuoto.
+vanno sempre insieme**, il primo da solo e un guscio da 16 KB.
 
 Lo script non si limita a convertire: confronta le risposte delle due versioni su cinque
-posizioni diverse e si rifiuta di dichiarare valido un modello che diverge. La verifica
-misurata e uno scarto di 5,1e-07 contro una soglia di 1e-3, con la stessa mossa preferita
-ovunque.
+posizioni diverse e rifiuta un modello che diverge. Misurato: scarto di 5,1e-07 contro una
+soglia di 1e-3, e stessa mossa preferita ovunque.
 
-Il backend usa il modello ONNX in automatico appena lo trova. Per accertarsene:
+Il backend lo usa in automatico appena lo trova. Per provarlo in locale:
 
 ```bash
 python -m uvicorn chessbot.api.app:app --port 8000
@@ -58,25 +57,23 @@ curl http://127.0.0.1:8000/health      # deve dire "model_loaded": true
 
 ---
 
-## 2. Caricare i pesi
+## 2. I pesi sono gia pubblicati
 
-I 46 MB del modello non stanno in git — il gate `check_no_large_files` rifiuta `.onnx` per
-estensione. Vanno pubblicati a parte, e il posto piu comodo e una **release GitHub**,
-perche il repo ce l'hai gia.
-
-1. sul repository -> **Releases** -> **Draft a new release**
-2. tag: `v0.2-onnx`, titolo a piacere
-3. trascina **entrambi** i file: `chessbot.onnx` e `chessbot.onnx.data`
-4. **Publish release**
-
-Prendi nota degli indirizzi di download, nella forma:
+Fatto: release **`v0.2-onnx`** del repository, con dentro entrambi i file. Verificato che
+si scarichino senza autenticazione e che l'hash coincida con l'originale.
 
 ```
-https://github.com/TUONOME/REPO/releases/download/v0.2-onnx/chessbot.onnx
-https://github.com/TUONOME/REPO/releases/download/v0.2-onnx/chessbot.onnx.data
+https://github.com/FilippoIsoni/Resnet-Based-Chess-Bot-Fine-Tuned-with-RL/releases/download/v0.2-onnx/chessbot.onnx
+https://github.com/FilippoIsoni/Resnet-Based-Chess-Bot-Fine-Tuned-with-RL/releases/download/v0.2-onnx/chessbot.onnx.data
 ```
 
----
+Il repository e stato reso **pubblico** perche serviva: da un repo privato quegli URL
+rispondono 404 senza un token, e il build su Render fallirebbe. Controllato prima di
+farlo che non ci fosse nulla di sensibile — nessuna chiave, nessun file di configurazione
+con segreti, pesi e dataset gia esclusi da git.
+
+Se un domani rigeneri il modello, ricarica **entrambi** i file: `chessbot.onnx` da solo e
+un guscio da 16 KB, e il backend partirebbe con `model_loaded: false`.
 
 ## 3. Creare il servizio su Render
 
@@ -84,15 +81,12 @@ Serve un account gratuito su https://render.com (registrazione con GitHub, nessu
 
 1. **New** -> **Web Service** -> collega il repository
 2. **Language**: `Python 3`
-3. **Build Command**:
+3. **Build Command** — tutto su una riga sola, copiabile cosi com'e:
    ```
-   pip install torch --index-url https://download.pytorch.org/whl/cpu --no-deps &&
-   pip install -r requirements-serve.txt && pip install -e . --no-deps &&
-   mkdir -p runs/onnx &&
-   curl -sL -o runs/onnx/chessbot.onnx https://github.com/TUONOME/REPO/releases/download/v0.2-onnx/chessbot.onnx &&
-   curl -sL -o runs/onnx/chessbot.onnx.data https://github.com/TUONOME/REPO/releases/download/v0.2-onnx/chessbot.onnx.data
+   pip install -r requirements-serve.txt && pip install -e . --no-deps && mkdir -p runs/onnx && curl -sL -o runs/onnx/chessbot.onnx https://github.com/FilippoIsoni/Resnet-Based-Chess-Bot-Fine-Tuned-with-RL/releases/download/v0.2-onnx/chessbot.onnx && curl -sL -o runs/onnx/chessbot.onnx.data https://github.com/FilippoIsoni/Resnet-Based-Chess-Bot-Fine-Tuned-with-RL/releases/download/v0.2-onnx/chessbot.onnx.data
    ```
-   (tutto su una riga sola; adatta `TUONOME/REPO`)
+   Niente torch: verificato che il backend si avvii e giochi senza, sono 200 MB in meno
+   da scaricare ad ogni build.
 4. **Start Command**:
    ```
    uvicorn chessbot.api.app:app --host 0.0.0.0 --port $PORT --workers 1
@@ -101,11 +95,6 @@ Serve un account gratuito su https://render.com (registrazione con GitHub, nessu
    memoria e valgono solo dentro un processo.
 5. **Instance Type**: `Free`
 6. **Create Web Service**
-
-> **Perche installare torch se serviamo ONNX?** Non serve. `requirements-serve.txt` non lo
-> elenca e il backend non lo importa quando trova il `.onnx`. Se il build risulta troppo
-> lento, togli pure la prima riga del Build Command: serve solo come rete di sicurezza nel
-> caso il download del modello fallisca e si debba ripiegare sui checkpoint.
 
 L'indirizzo sara `https://<nome-servizio>.onrender.com`. Segnatelo per il punto 5.
 
@@ -149,7 +138,9 @@ Due impostazioni sul repository GitHub, una volta sola:
 Poi: scheda **Actions** -> workflow **pages** -> **Run workflow**. Da qui in avanti riparte
 da solo ad ogni modifica dentro `web/`.
 
-Il sito sara su `https://TUONOME.github.io/Resnet-Based-Chess-Bot-Fine-Tuned-with-RL/`.
+Il sito sara su `https://filippoisoni.github.io/Resnet-Based-Chess-Bot-Fine-Tuned-with-RL/`,
+che e gia l'origine autorizzata nel CORS del backend: il collegamento funziona senza
+ulteriori modifiche.
 
 Se `BACKEND_URL` manca o non inizia per `https://`, il workflow si ferma con un messaggio
 esplicito invece di pubblicare un sito che sembra funzionare e non gioca.
@@ -188,9 +179,9 @@ Nessun errore visibile ma richiesta bloccata significa quasi sempre mixed conten
 
 | | Dove | Indirizzo |
 |---|---|---|
-| Modello ONNX | release GitHub | `github.com/TUONOME/REPO/releases/tag/v0.2-onnx` |
+| Modello ONNX | release GitHub | `.../releases/tag/v0.2-onnx` — gia pubblicata |
 | Motore | Render | `<nome-servizio>.onrender.com` |
-| UI | GitHub Pages | `TUONOME.github.io/<repo>/` |
+| UI | GitHub Pages | `filippoisoni.github.io/Resnet-Based-Chess-Bot-Fine-Tuned-with-RL/` |
 
 Il contratto fra le ultime due e `docs/API_CONTRACT.md`: se cambia una delle due meta, si
 aggiorna prima quel file.
