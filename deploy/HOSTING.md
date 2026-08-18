@@ -134,13 +134,21 @@ predefiniti:
 Inutilizzabili. Il costo e di ~40 ms per simulazione piu ~0,8 s fissi, quindi i valori
 sensati su questo hardware sono **25 / 60 / 150**, che danno circa 1,8 / 3,2 / 6,8 s.
 
-Da impostare in **Environment**, senza toccare il codice ne ricostruire nulla:
+Da impostare in **Environment**, senza toccare il codice:
 
 ```
 CHESSBOT_EASY_SIMULATIONS     25
 CHESSBOT_MEDIUM_SIMULATIONS   60
 CHESSBOT_HARD_SIMULATIONS     150
 ```
+
+**Risultato misurato dopo il cambio**, sul servizio vero:
+
+| Livello | Simulazioni | Prima | Dopo |
+|---|---|---|---|
+| Casual | 50 -> 25 | 3,1 s | **1,3 s** |
+| Club | 200 -> 60 | 8,5 s | **2,6 s** |
+| Strong | 800 -> 150 | 32,7 s | **5,9 s** |
 
 **Cosa si perde in forza.** Il livello Club scende da 200 a 60 simulazioni: dai 1964 Elo
 misurati a qualcosa intorno ai 1800, stimato sulla curva del Gate 5 e non misurato. Resta
