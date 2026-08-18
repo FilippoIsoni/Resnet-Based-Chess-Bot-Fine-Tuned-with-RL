@@ -17,7 +17,13 @@ chess==1.11.2
 numpy==1.26.4  # < 2: vincolo ereditato da requirements.txt, vedi la nota li
 pydantic==2.13.4
 
-onnxruntime==1.23.2
+# 1.29.0 e la versione con cui sono state fatte le verifiche di parita
+# (tests/unit/test_onnx_parity.py) e le prove nel browser. Il pin precedente,
+# 1.23.2, non e mai stato installato da nessuno: veniva dal file scritto
+# quando il deploy ONNX era solo previsto, e su Python 3.13 quella versione
+# non esiste proprio — il build su Render falliva con "No matching
+# distribution found".
+onnxruntime==1.29.0
 
 fastapi==0.141.1
 uvicorn[standard]==0.52.1
