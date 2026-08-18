@@ -195,6 +195,68 @@ void main() {
       expect(await engine.ping(), isFalse);
     });
   });
+
+  group('the engine being busy', () {
+    test('a 503 is retried once and then succeeds', () async {
+      // The backend serialises searches: a 503 means someone else's move is
+      // mid-flight, which on this page happens when the wake-up ping and a
+      // quick first move overlap. Retrying turns a visible error into a
+      // slightly slower move.
+      var calls = 0;
+      final engine = HttpEngine(
+        'http://x',
+        client: MockClient((_) async {
+          calls++;
+          if (calls == 1) {
+            return http.Response(
+              jsonEncode({'detail': 'search already running'}),
+              503,
+              headers: {'retry-after': '1', 'content-type': 'application/json'},
+            );
+          }
+          return http.Response(
+            jsonEncode({
+              'move': 'e2e4',
+              'san': 'e4',
+              'eval': 0.1,
+              'pv': <String>[],
+              'ms': 500,
+              'sims': 60,
+              'game_over': false,
+              'result': null,
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+
+      final move = await engine.bestMove(startPosition, Difficulty.medium);
+      expect(move.uci, 'e2e4');
+      expect(calls, 2, reason: 'exactly one retry, not a loop');
+    });
+
+    test('a second 503 gives up instead of retrying forever', () async {
+      var calls = 0;
+      final engine = HttpEngine(
+        'http://x',
+        client: MockClient((_) async {
+          calls++;
+          return http.Response(
+            jsonEncode({'detail': 'busy'}),
+            503,
+            headers: {'retry-after': '1', 'content-type': 'application/json'},
+          );
+        }),
+      );
+
+      await expectLater(
+        engine.bestMove(startPosition, Difficulty.medium),
+        throwsA(isA<EngineException>()),
+      );
+      expect(calls, 2, reason: 'one attempt plus one retry, then it stops');
+    });
+  });
 }
 
 /// Stands in for whatever the platform throws when a host is unreachable.

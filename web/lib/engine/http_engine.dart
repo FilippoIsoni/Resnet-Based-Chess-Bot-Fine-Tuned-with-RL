@@ -54,27 +54,43 @@ class HttpEngine implements Engine {
     }
   }
 
-  @override
-  Future<EngineMove> bestMove(String fen, Difficulty level) async {
-    final http.Response response;
+  /// One POST to /move, with the network failure already turned into a
+  /// sentence a player can read.
+  Future<http.Response> _post(String fen, Difficulty level) async {
     try {
-      response = await _client
+      final response = await _client
           .post(
             Uri.parse('$baseUrl/move'),
             headers: const {'Content-Type': 'application/json'},
             body: jsonEncode({'fen': fen, 'level': level.id}),
           )
           .timeout(_timeout);
+      _cold = false;
+      return response;
     } catch (_) {
       throw EngineException(
         _cold
             ? 'The engine did not answer in time. On the free server the first '
-                'wake-up can take about thirty seconds - try again.'
+                'wake-up can take about a minute - try again.'
             : 'Could not reach the engine. Check your connection.',
       );
     }
+  }
 
-    _cold = false;
+  @override
+  Future<EngineMove> bestMove(String fen, Difficulty level) async {
+    var response = await _post(fen, level);
+
+    // 503 means the engine is mid-search for someone else — it serialises
+    // searches deliberately, so this is the guard working, not a fault. It
+    // happens on this very page too: the wake-up ping and a first quick move
+    // can overlap. One retry, honouring the server's own Retry-After, turns a
+    // visible error into a slightly slower move.
+    if (response.statusCode == 503) {
+      final wait = int.tryParse(response.headers['retry-after'] ?? '') ?? 2;
+      await Future<void>.delayed(Duration(seconds: wait.clamp(1, 5)));
+      response = await _post(fen, level);
+    }
 
     if (response.statusCode != 200) {
       throw EngineException(_messageFor(response));
